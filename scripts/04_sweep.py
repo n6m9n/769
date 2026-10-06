@@ -46,13 +46,15 @@ def run(tag, sweep, warm=True, **info):
     rec = {"tag": tag, "sweep": sweep, **info, "status": res.status, "lp": {k: float(v) for k, v in res.agg.items()},
            "int": {k: float(v) for k, v in ev.items()}, "gap_Ttot": float(gap),
            "rc": {k: float(v) for k, v in res.reduced_costs.items()},
-           "n_frac_x": res.n_frac_x, "n_frac_z": res.n_frac_z, "seconds": res.seconds, "iters": res.iterations}
+           "n_frac_x": res.n_frac_x, "n_frac_z": res.n_frac_z, "seconds": res.seconds, "iters": res.iterations,
+           "warm": bool(warm), "fallback": res.fallback, "warm_seconds": res.warm_seconds}
     records.append(rec)
     save_tokenizer(tokdir / f"toast_{tag}.pkl", vocab, prob.ngrams, prob.hierarchy,
                    meta={k: rec[k] for k in ["tag", "sweep", "lp", "int", "gap_Ttot"]},
                    morph_models=prob.meta.get("morph_models") if "morph" in prob.hierarchy else None)
     print(f"  {tag:<22} {res.status:<8} Ttot={ev['Ttot']:.2f} Tmax={ev['Tmax']:.2f} Mtot={ev['Mtot']:.2f} "
-          f"gap={gap:.1e} frac(x,z)=({res.n_frac_x},{res.n_frac_z}) {res.seconds:.1f}s/{res.iterations}it")
+          f"gap={gap:.1e} frac(x,z)=({res.n_frac_x},{res.n_frac_z}) {res.seconds:.1f}s/{res.iterations}it"
+          + (f" [warm start timed out after {res.warm_seconds:.0f}s -> cold]" if res.fallback else ""), flush=True)
     return res, ev
 
 

@@ -44,6 +44,8 @@ class LPResult:
     n_frac_z: int
     x: np.ndarray = field(repr=False, default=None)
     z: np.ndarray = field(repr=False, default=None)
+    fallback: bool = False    # warm start hit the time limit and the solve was redone cold
+    warm_seconds: float = 0.0 # time spent in the abandoned warm attempt (included in `seconds`)
 
 
 class VocabLP:
@@ -212,8 +214,10 @@ class VocabLP:
             self.h.clearSolver()
         self.h.setOptionValue("time_limit", float(warm_time_limit) if (not cold and warm_time_limit) else INF)
         self.h.run()
+        fallback, warm_seconds = False, 0.0
         if not cold and self.h.getModelStatus() == highspy.HighsModelStatus.kTimeLimit:
             # warm start stalled (degenerate re-optimisation, seen in the morph sweep): fall back to presolve
+            fallback, warm_seconds = True, time.time() - t0
             self.h.clearSolver()
             self.h.setOptionValue("time_limit", INF)
             self.h.run()
@@ -234,7 +238,7 @@ class VocabLP:
         fx = int(np.sum((x > eps) & (x < 1 - eps)))
         fz = int(np.sum((z > eps) & (z < 1 - eps)))
         return LPResult(status, info.objective_function_value, agg, rc, dd, time.time() - t0,
-                        int(info.simplex_iteration_count), fx, fz, x.copy(), z.copy())
+                        int(info.simplex_iteration_count), fx, fz, x.copy(), z.copy(), fallback, warm_seconds)
 
     # ------------------------------------------------------------- rounding
     def round(self, res: LPResult, eps=1e-5) -> list[str]:
