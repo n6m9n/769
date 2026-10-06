@@ -104,6 +104,19 @@ def test_minmax_reduces_worst_language():
     assert r1.agg["Ttot"] >= r0.agg["Ttot"] - 1e-9
 
 
+def test_warm_time_limit_is_per_call():
+    """HiGHS's time_limit is cumulative over run() calls; the warm budget must not count earlier solves."""
+    prob = toy_problem()
+    lp = VocabLP(prob, m=len(prob.base_chars) + 6 + 256)
+    lp.set_objective(Ttot=1.0)
+    while lp.h.getRunTime() < 0.05:          # accumulate run-clock time with cold solves
+        r0 = lp.solve(warm=False)
+    budget = lp.h.getRunTime() / 2           # < time already used, >> a warm re-solve of the toy
+    lp.set_bounds(t_max=0.999 * r0.agg["Tmax"])
+    r1 = lp.solve(warm=True, warm_time_limit=budget)
+    assert not r1.fallback and r1.status == "Optimal"
+
+
 def test_roundtrip_with_byte_fallback():
     prob = toy_problem()
     tok = SplitTreeTokenizer(list(prob.base_chars) + [" the", "ing"], prob.ngrams, prob.hierarchy)

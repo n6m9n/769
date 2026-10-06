@@ -212,7 +212,10 @@ class VocabLP:
         cold = not warm or not getattr(self, "_solved_once", False)
         if cold:
             self.h.clearSolver()
-        self.h.setOptionValue("time_limit", float(warm_time_limit) if (not cold and warm_time_limit) else INF)
+        # HiGHS checks time_limit against its *cumulative* run clock (all run() calls on this object),
+        # so a per-call budget has to be offset by the time already used.
+        self.h.setOptionValue("time_limit", self.h.getRunTime() + float(warm_time_limit)
+                              if (not cold and warm_time_limit) else INF)
         self.h.run()
         fallback, warm_seconds = False, 0.0
         if not cold and self.h.getModelStatus() == highspy.HighsModelStatus.kTimeLimit:
