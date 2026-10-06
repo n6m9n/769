@@ -40,6 +40,12 @@ records = []
 
 def run(tag, sweep, warm=True, **info):
     res = lp.solve(warm=warm)
+    if res.status != "Optimal":   # e.g. a grid corner where tau and eps can't hold together: no Pareto point
+        records.append({"tag": tag, "sweep": sweep, **info, "status": res.status, "seconds": res.seconds,
+                        "iters": res.iterations, "warm": bool(warm), "fallback": res.fallback,
+                        "warm_seconds": res.warm_seconds})
+        print(f"  {tag:<22} {res.status:<8} (no tokenizer saved) {res.seconds:.1f}s/{res.iterations}it", flush=True)
+        return res, None
     vocab = lp.round(res)
     ev = lp.evaluate(vocab)
     gap = (ev["Ttot"] - res.agg["Ttot"]) / max(ev["Ttot"], 1e-12)
