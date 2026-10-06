@@ -140,10 +140,11 @@ motok/eval/metrics.py    compression, Gini, Rényi eff., morph P/R/F1 + MorphSco
 scripts/01_download.py   smoke | morph | fineweb | flores                                smoke + morph run; fineweb/flores UNTESTED
 scripts/02_prepare.py    counts, Morfessor, problem.pkl                                  run on smoke
 scripts/03_baselines.py  BPE/Unigram × alpha                                             run on smoke
-scripts/04_sweep.py      anchors + parity / morph / grid ε-sweeps                        anchors + parity done; morph sweep stalled (fix added, unverified); grid not run
-scripts/05_evaluate.py   held-out metrics for every tokenizer                            NOT RUN
-scripts/06_plots.py      fronts, per-language bars, shadow prices, summary.md            NOT RUN
-tests/test_core.py       9 tests incl. brute-force LP optimality on a toy                passing
+scripts/04_sweep.py      anchors + parity / morph / grid ε-sweeps                        all run on smoke (2026-10-06); infeasible points recorded, not rounded
+scripts/05_evaluate.py   held-out metrics for every tokenizer                            run on smoke
+scripts/06_plots.py      fronts, per-language bars, shadow prices, summary.md            run on smoke
+scripts/check_results.py LP<=integer, monotone fronts, full round trip -> checks.json      run on smoke
+tests/test_core.py       10 tests incl. brute-force LP optimality on a toy                passing
 ```
 
 ---
@@ -173,14 +174,19 @@ Takeaways so far:
 - Warm-started sweep points: 0.5–22 s vs 13–75 s cold.
 
 Caveats: κ = 1 (no FLORES yet), so cross-script comparison isn't content-normalised; tiny mr/ta data;
-these are training-side numbers, held-out evaluation hasn't run yet; no baseline comparison yet.
+these are training-side numbers.
+
+Full smoke pipeline incl. held-out eval, baselines, checks and diagnosis (2026-10-06): see
+`results/smoke/REPORT.md` (not in git). Numbers above reproduce to ±0.1.
 
 ---
 
 ## 7. Known issues
 
-1. **Morph ε-sweep stall:** warm dual simplex hung (> 5 min) on `morph_1`. `solve()` now has a 60 s
-   warm-start time limit with a cold (presolve) fallback. Unverified.
+1. **Morph ε-sweep stall:** warm dual simplex hung (> 5 min) on `morph_1` (older highspy). With highspy 1.15.1
+   it does not reproduce: all morph points solve warm in 4–7 s (2026-10-06). The 60 s warm-start limit with cold
+   fallback stays as a safety net; HiGHS `time_limit` is *cumulative* over `run()` calls, so `solve()` offsets it by
+   `getRunTime()` (before that fix every warm start fell back to cold instantly). Fallbacks are logged per point.
 2. **Warm-start rule:** after objective (cost) changes use `solve(warm=False)` (presolve) or
    `method="primal"`; after bound/RHS changes use `warm=True, method="dual"`. Sweep bounds loose → tight.
    A bound change before the first solve makes HiGHS think it has a basis and skip presolve; `solve()`
@@ -191,7 +197,17 @@ these are training-side numbers, held-out evaluation hasn't run yet; no baseline
 4. `encode_with_offsets` gives byte-fallback pieces the span of their character (fine for boundary metrics).
 5. `_ScriptRouter` in `toast/io.py` (morph-first inference) just tries segmenters in order: OK for
    script-disjoint languages, approximate for hi/mr.
-6. HF Unigram training is slow (~45 s each on smoke data); expect much longer on full data.
+6. HF Unigram training is slow (~10–45 s each on smoke data); expect much longer on full data.
+7. **Rounding overshoots ε-bounds** slightly (smoke: 17/22 points, Tmax ≤ +0.45, Mtot ≤ +0.12 per 1000 chars), so
+   `gap_Ttot` is not a certificate at those points. Needs bound-aware rounding / repair.
+8. **Coverage dominates held-out results:** with 2000 trees/lang (coverage 64–100%) the LP beats BPE by 9% on the
+   selected pretokens but loses on held-out text (428 vs 380). Trees must cover most of the text, and the
+   vocab must stay well below the number of trees (else every tree root fits in the vocabulary and the front
+   collapses).
+9. **Gold morphology barely overlaps the trees** (smoke: < 1% of SIGMORPHON test words are trees), so held-out
+   morph metrics can't reflect the morph objective yet.
+10. Grid sweep uses a global ε range; tight-τ corners are infeasible (min Mtot | Tmax ≤ 427.5 = 40.8 on smoke).
+    Choose ε per τ from [min Mtot | τ, Mtot at τ]. Grid also visits τ tight → loose (against rule 2).
 
 ---
 
