@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import random
+import re
+import shutil
 import sys
 import urllib.request
 from pathlib import Path
@@ -36,14 +38,37 @@ UD = {  # smoke-test corpora hosted on GitHub
 SIGMORPHON = "https://raw.githubusercontent.com/sigmorphon/2022SegmentationST/main/data"
 
 
+_RAW = re.compile(r"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)")
+
+
+def _download(url: str, dest: Path, headers: dict | None = None) -> None:
+    """Write to dest.part and rename, so a failed download never leaves a truncated file behind."""
+    part = dest.with_name(dest.name + ".part")
+    req = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(req, timeout=120) as r, open(part, "wb") as f:
+        shutil.copyfileobj(r, f)
+    part.replace(dest)
+
+
 def fetch(url: str, dest: Path) -> bool:
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        urllib.request.urlretrieve(url, dest)
+        _download(url, dest)
         return True
     except Exception as e:  # noqa: BLE001
-        print(f"  ! failed {url}: {e}")
-        return False
+        err = e
+    # raw.githubusercontent.com is blocked on some networks: retry the same file via the GitHub API
+    m = _RAW.match(url)
+    if m:
+        owner, repo, ref, path = m.groups()
+        try:
+            _download(f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={ref}", dest,
+                      headers={"Accept": "application/vnd.github.raw"})
+            return True
+        except Exception as e:  # noqa: BLE001
+            err = e
+    print(f"  ! failed {url}: {err}")
+    return False
 
 
 def download_morph():
