@@ -1,0 +1,14 @@
+[sweep] LP built in 0.9s: 23958 token vars, 144608 node vars, 222292 rows
+[anchors]
+  compression            Optimal  Ttot=300.49 Tmax=633.33 Mtot=44.01 gap=6.2e-15 frac(x,z)=(0,0) 13.6s/104567it
+  minmax                 Optimal  Ttot=358.91 Tmax=359.08 Mtot=84.71 gap=1.2e-05 frac(x,z)=(6,50) 75.2s/124178it
+  min_morph              Optimal  Ttot=394.29 Tmax=640.77 Mtot=32.14 gap=1.3e-15 frac(x,z)=(0,0) 13.0s/100376it
+[sweep parity] min Ttot s.t. T_l <= tau
+  parity_0               Optimal  Ttot=300.57 Tmax=593.82 Mtot=44.08 gap=3.2e-06 frac(x,z)=(2,122) 0.5s/144it
+  parity_1               Optimal  Ttot=300.80 Tmax=554.39 Mtot=44.27 gap=1.5e-05 frac(x,z)=(2,32) 0.9s/260it
+  parity_2               Optimal  Ttot=301.57 Tmax=515.78 Mtot=44.66 gap=3.8e-04 frac(x,z)=(49,286) 3.6s/1071it
+  parity_3               Optimal  Ttot=303.42 Tmax=476.97 Mtot=45.90 gap=1.5e-05 frac(x,z)=(6,44) 9.1s/1863it
+  parity_4               Optimal  Ttot=308.79 Tmax=437.51 Mtot=49.67 gap=2.1e-04 frac(x,z)=(27,145) 16.5s/3880it
+  parity_5               Optimal  Ttot=322.50 Tmax=398.48 Mtot=58.89 gap=5.0e-05 frac(x,z)=(17,105) 21.9s/5447it
+[sweep morph] min Ttot s.t. Mtot <= eps
+  morph_0                Optimal  Ttot=300.71 Tmax=631.45 Mtot=42.34 gap=1.0e-04 frac(x,z)=(11,44) 10.3s/1736it

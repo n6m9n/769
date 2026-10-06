@@ -1,0 +1,40 @@
+# Language set. Each language has: FineWeb(-2) source, FLORES code, script, morph resources.
+# Edit freely; every script reads this file.
+languages:
+  en:
+    name: English
+    fineweb: {repo: HuggingFaceFW/fineweb, config: sample-10BT}   # FineWeb-2 excludes English
+    flores: eng_Latn
+    script: Latn
+    sigmorphon: eng          # gold morphology for evaluation
+  hi:
+    name: Hindi
+    fineweb: {repo: HuggingFaceFW/fineweb-2, config: hin_Deva}
+    flores: hin_Deva
+    script: Deva
+  mr:
+    name: Marathi
+    fineweb: {repo: HuggingFaceFW/fineweb-2, config: mar_Deva}
+    flores: mar_Deva
+    script: Deva
+  ta:
+    name: Tamil
+    fineweb: {repo: HuggingFaceFW/fineweb-2, config: tam_Taml}
+    flores: tam_Taml
+    script: Taml
+  ru:
+    name: Russian
+    fineweb: {repo: HuggingFaceFW/fineweb-2, config: rus_Cyrl}
+    flores: rus_Cyrl
+    script: Cyrl
+    sigmorphon: rus
+  hu:
+    name: Hungarian
+    fineweb: {repo: HuggingFaceFW/fineweb-2, config: hun_Latn}
+    flores: hun_Latn
+    script: Latn
+    sigmorphon: hun
+
+# Megabytes of raw text to download per language for tokenizer training.
+# Natural imbalance on purpose: it creates the fairness problem we want to study.
+download_mb: {en: 200, hi: 100, ru: 75, hu: 50, mr: 50, ta: 25}

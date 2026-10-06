@@ -1,0 +1,15 @@
+# Smoke-test experiment on UD treebank text (runs on a laptop in a few minutes).
+name: smoke
+langs: [en, hi, mr, ta, ru, hu]
+data_dir: data
+results_dir: results/smoke
+trees_per_lang: 2000          # most frequent pretokens per language -> split trees
+vocab_size: 4000              # includes 256 reserved byte-fallback tokens
+hierarchy: [grapheme, char]   # count-based trees (ToaST default); try [morph, grapheme, char]
+balance_ngrams: true
+morfessor_max_words: 20000
+baselines:
+  kinds: [bpe, unigram]
+  alphas: [1.0, 0.5, 0.0]     # temperature sampling: 1 = natural mix, 0 = uniform over languages
+sweep:
+  n_points: 6                 # epsilon values per sweep
