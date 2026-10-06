@@ -176,8 +176,11 @@ Takeaways so far:
 Caveats: κ = 1 (no FLORES yet), so cross-script comparison isn't content-normalised; tiny mr/ta data;
 these are training-side numbers.
 
-Full smoke pipeline incl. held-out eval, baselines, checks and diagnosis (2026-10-06): see
-`results/smoke/REPORT.md` (not in git). Numbers above reproduce to ±0.1.
+Full smoke pipeline incl. held-out eval, baselines, checks and diagnosis (2026-10-06): κ = 1 run in
+`results/smoke_kappa1/REPORT.md` (numbers above reproduce to ±0.1); **FLORES κ run** in `results/smoke/REPORT.md`
+(not in git). FLORES+ downloaded and verified aligned; κ: en 1.000, hi 1.001, mr 1.004, ta 1.167, ru 1.103, hu 1.055.
+With κ: parity_4 −29% worst-language for +4.2% total; FLORES devtest: parity cuts worst language −15% and mean −9%
+vs the LP compression anchor, but BPE α=0 still wins in absolute tokens (coverage, issue 8).
 
 ---
 
