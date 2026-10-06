@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "motok"
+version = "0.1.0"
+description = "Multi-objective optimisation for multilingual tokenization (Pareto-ToaST)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "highspy>=1.7",
+    "regex",
+    "pyyaml",
+    "morfessor",
+    "tokenizers",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+data = ["datasets", "huggingface_hub"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["motok*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
