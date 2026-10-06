@@ -48,8 +48,12 @@ style = {"BPE (temp. sampling)": ("s", "tab:red"), "Unigram (temp. sampling)": (
          "LP: 3-objective grid": (".", "tab:gray"), "LP anchors": ("*", "black")}
 
 
+bound = {f"toast_{r['tag']}": r.get("tau", r.get("eps")) for r in S["records"]
+         if r["sweep"] in ("parity", "morph") and "lp" in r}
+
+
 def front_plot(ykey, ylabel, fname, groups_on):
-    fig, ax = plt.subplots(figsize=(6.4, 4.6))
+    fig, ax = plt.subplots(figsize=(6.4, 5.4))
     pts = {}
     for n, r in E.items():
         g = group(n)
@@ -59,21 +63,30 @@ def front_plot(ykey, ylabel, fname, groups_on):
         pts.setdefault(g, []).append((comp(r), y, n))
     for g, P in pts.items():
         m, c = style[g]
-        P = sorted(P)
-        ax.plot([p[0] for p in P], [p[1] for p in P], m + ("-" if g.startswith("LP:") else ""), color=c,
-                label=g, ms=9 if m == "*" else 6, alpha=.9)
+        if g.startswith("LP:"):
+            # connect in sweep order (compression anchor -> loose -> tight -> min-max / min-morph anchor),
+            # not by x: held-out values need not be monotone along the sweep
+            P = sorted(P, key=lambda p: (0, -bound[p[2]]) if p[2] in bound else (1, 0))
+            if "toast_compression" in E:
+                anc = E["toast_compression"]
+                xa, ya = comp(anc), anc["T_max"] if ykey == "T_max" else anc.get(ykey)
+                ax.plot([xa] + [p[0] for p in P], [ya] + [p[1] for p in P], "-", color=c, alpha=.5)
+            ax.plot([p[0] for p in P], [p[1] for p in P], m, color=c, label=g + " (line = sweep order)", ms=6, alpha=.9)
+        else:
+            ax.plot([p[0] for p in P], [p[1] for p in P], m, color=c, label=g, ms=9 if m == "*" else 6, alpha=.9)
         for x, y, n in P:
             if g in ("LP anchors",) or not g.startswith("LP"):
                 ax.annotate(n.replace("toast_", ""), (x, y), fontsize=7, xytext=(3, 3), textcoords="offset points")
     ax.set_xlabel("compression: data-weighted tokens / 1000 chars (held-out, lower = better)")
-    ax.set_ylabel(ylabel); ax.grid(alpha=.3); ax.legend(fontsize=8)
+    ax.set_ylabel(ylabel); ax.grid(alpha=.3)
+    ax.legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=2, frameon=False)
     fig.tight_layout(); fig.savefig(cfg.out / fname, dpi=160); plt.close(fig)
     return pts
 
 
 p1 = front_plot("T_max", "worst-language tokens / 1000 chars (lower = fairer)", "fig_parity_front.png",
                 ["BPE (temp. sampling)", "Unigram (temp. sampling)", "LP: compression vs parity", "LP anchors"])
-p2 = front_plot("spurious_mean", "spurious boundaries per word, gold morphology (lower = better)",
+p2 = front_plot("spurious_mean", "spurious boundaries / word, gold (lower = better)",
                 "fig_morph_front.png",
                 ["BPE (temp. sampling)", "Unigram (temp. sampling)", "LP: compression vs morphology", "LP anchors"])
 
