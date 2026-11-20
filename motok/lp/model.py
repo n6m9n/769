@@ -160,6 +160,11 @@ class VocabLP:
         lp.num_col_, lp.num_row_ = nC, r
         col_lo = np.zeros(nC); col_hi = np.ones(nC)
         col_lo[: len(prob.base_chars)] = 1.0               # base chars always in vocabulary
+        if np.any(prob.meta.get("is_tail", [])):
+            # sampled tail trees: only frequent n-grams may become tokens (else z of that node is forced to 0)
+            rare = np.array([i >= len(prob.base_chars) and t not in prob.ngrams for i, t in enumerate(self.tokens)])
+            col_hi[:nX][rare] = 0.0
+            self.n_rare_tokens = int(rare.sum())
         agg = np.r_[self.cT, self.cM, self.cA, [self.cTtot, self.cMtot, self.ct, self.cS]]
         col_lo[agg] = 0.0; col_hi[agg] = INF
         col_lo[self.cS] = -INF

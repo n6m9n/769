@@ -16,6 +16,7 @@ ap = argparse.ArgumentParser(); ap.add_argument("--config", required=True)
 ap.add_argument("--max-lines", type=int, default=None)
 ap.add_argument("--procs", type=int, default=32)
 ap.add_argument("--trees-per-lang", type=int, default=None, help="override config")
+ap.add_argument("--tail-samples", type=int, default=0, help="SAA tail draws per language (0 = head only)")
 ap.add_argument("--hierarchy", nargs="+", default=None, help="override config, e.g. morph grapheme char")
 ap.add_argument("--out-name", default=None, help="write problem to results/<out-name> instead of the config results_dir")
 a = ap.parse_args()
@@ -59,12 +60,13 @@ kappa = compute_kappa(cfg)
 print("[kappa]", {l: round(k, 3) for l, k in kappa.items()})
 t_build = time.time()
 prob = build_problem(counts, cfg.trees_per_lang, hierarchy=cfg.hierarchy, segmenters=segs, kappa=kappa,
-                     balance_ngrams=cfg.balance_ngrams)
+                     balance_ngrams=cfg.balance_ngrams, tail_samples=a.tail_samples)
 prob.meta["morph_models"] = morph_paths
 prob.meta["build_seconds"] = time.time() - t_build
 prob.save(cfg.out / "problem.pkl")
 json.dump({"coverage": prob.coverage, "kappa": kappa, "n_trees": len(prob.trees),
            "n_nodes": int(sum(t.n_nodes for t in prob.trees)), "base_chars": len(prob.base_chars), "trees_per_lang": cfg.trees_per_lang,
-           "build_seconds": prob.meta["build_seconds"]},
+           "build_seconds": prob.meta["build_seconds"],
+           "tail_samples": a.tail_samples, "tail_mass": prob.meta["tail_mass"], "n_tail_trees": int(prob.meta["is_tail"].sum())},
           open(cfg.out / "problem_stats.json", "w"), indent=1)
 print(f"[prepare] saved {cfg.out/'problem.pkl'}")

@@ -45,6 +45,8 @@ def build_problem(
     kappa: dict[str, float] | None = None,
     balance_ngrams: bool = True,
     max_pretoken_len: int = 64,
+    tail_samples: int | dict[str, int] = 0,
+    seed: int = 0,
     verbose: bool = True,
 ) -> Problem:
     """
@@ -54,6 +56,12 @@ def build_problem(
     segmenters:      lang -> callable(word)->segments; used for morph marks (and tree splits if 'morph' in hierarchy)
     balance_ngrams:  rescale each language to equal total mass before computing n-gram counts,
                      so split decisions for low-resource languages aren't starved of counts
+    tail_samples:    sample average approximation of the long tail. For each language, draw this many pretokens
+                     (with replacement, probability proportional to count) from the pretokens that are not head
+                     trees and give each draw the weight (tail mass)/(tail_samples). The LP objective then is an
+                     unbiased estimate of the token count over *all* text instead of only the head. Only frequent
+                     n-grams (count >= the head threshold) may become tokens (enforced in VocabLP), so sampling
+                     noise cannot buy vocabulary slots for individual tail words.
     """
     t0 = time.time()
     langs = list(lang_counts)
@@ -78,7 +86,27 @@ def build_problem(
         for li, l in enumerate(langs):
             if v[li] == 0:
                 v[li] = lang_counts[l].get(p, 0)
+    head = list(sel)
+    head_set = set(head)
+    # sample average approximation of the tail (pretokens outside the head set, per language)
+    tail_mass = {}
+    rng = np.random.default_rng(seed)
+    for li, l in enumerate(langs):
+        S = tail_samples[l] if isinstance(tail_samples, dict) else tail_samples
+        if not S:
+            continue
+        tail = [(p, c) for p, c in lang_counts[l].items() if p not in head_set and len(p) <= max_pretoken_len]
+        M = float(sum(c for _, c in tail))
+        tail_mass[l] = M / max(totals[l], 1)
+        if not tail or M <= 0:
+            continue
+        cnt = np.array([c for _, c in tail], float)
+        draws = np.bincount(rng.choice(len(tail), size=S, p=cnt / M), minlength=len(tail))
+        for i in np.nonzero(draws)[0]:
+            v = sel.setdefault(tail[i][0], np.zeros(L))
+            v[li] += draws[i] * M / S
     pretokens = list(sel)
+    is_tail = np.array([p not in head_set for p in pretokens])
     C = np.stack([sel[p] for p in pretokens])
 
     # 2) n-gram counts (language-balanced), threshold = min weighted count over selected pretokens
@@ -88,9 +116,9 @@ def build_problem(
         for p, c in lang_counts[l].items():
             if len(p) <= max_pretoken_len:
                 merged[p] = merged.get(p, 0.0) + c * s
-    min_count = min(merged[p] for p in pretokens)
+    min_count = min(merged[p] for p in head)
     if verbose:
-        print(f"[problem] {len(pretokens)} trees; n-gram min_count={min_count:.3g}; computing n-grams over {len(merged)} pretoken types")
+        print(f"[problem] {len(head)} head + {int(is_tail.sum())} sampled tail trees; n-gram min_count={min_count:.3g}; computing n-grams over {len(merged)} pretoken types")
     ngrams = ngram_counts(merged, min_count=min_count, max_len=max_pretoken_len)
 
     # 3) trees + morph annotation
@@ -120,4 +148,5 @@ def build_problem(
         print(f"[problem] {n_nodes} nodes, {len(base_chars)} base chars, morph-annotated trees: {n_morph}/{len(trees)}, "
               f"coverage: {', '.join(f'{l}={coverage[l]:.1%}' for l in langs)}  ({time.time()-t0:.1f}s)")
     return Problem(langs, trees, C, chars, kap, ngrams, list(hierarchy), coverage, base_chars,
-                   meta={"min_count": min_count, "trees_per_lang": trees_per_lang, "balance_ngrams": balance_ngrams})
+                   meta={"min_count": min_count, "trees_per_lang": trees_per_lang, "balance_ngrams": balance_ngrams,
+                         "tail_samples": tail_samples, "tail_mass": tail_mass, "is_tail": is_tail, "seed": seed})

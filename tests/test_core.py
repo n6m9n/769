@@ -152,3 +152,20 @@ def test_parallel_counting_matches_serial(tmp_path):
     f = tmp_path / "t.txt"
     f.write_text("\n".join(["the walking dog házakban", "नमस्ते दुनिया 123", "there's  more!"] * 50) + "\n")
     assert count_pretokens_file(f, n_proc=1) == count_pretokens_file(f, n_proc=3, chunk_lines=7)
+
+
+def test_tail_sampling_is_unbiased_and_blocks_rare_tokens():
+    big = {"en": Counter({**TOY["en"], **{f" w{i}x": 1 for i in range(200)}}), "hu": TOY["hu"]}
+    prob = build_problem(big, trees_per_lang=5, tail_samples=400, verbose=False, seed=1)
+    tot = sum(sum(c.values()) for c in [big["en"]])
+    # weighted pretoken mass of en equals the true total (head exact + tail estimator, which is exact in mass)
+    assert prob.counts[:, 0].sum() == pytest.approx(tot)
+    assert prob.meta["is_tail"].sum() > 0
+    lp = VocabLP(prob, m=len(prob.base_chars) + 8 + 256)
+    lp.set_objective(Ttot=1.0)
+    res = lp.solve(warm=False)
+    assert res.status == "Optimal"
+    vocab = lp.round(res)
+    assert all(t in prob.ngrams or t in prob.base_chars for t in vocab)
+    ev = lp.evaluate(vocab)
+    assert ev["Ttot"] >= res.agg["Ttot"] - 1e-6
