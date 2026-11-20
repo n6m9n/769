@@ -40,6 +40,10 @@ def objective(r, v):
         return DELTA * v["Ttot"] + v["Tmax"]
     if r["tag"] == "min_morph":
         return DELTA * v["Ttot"] + v["Mtot"]
+    if "lam" in r:
+        return v["Ttot"] + r["lam"] * v["Tmax"]
+    if "mu" in r:
+        return v["Ttot"] + r["mu"] * v["Mtot"]
     return v["Ttot"]
 
 
