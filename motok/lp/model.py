@@ -50,7 +50,11 @@ class LPResult:
 
 class VocabLP:
     def __init__(self, prob: Problem, m: int, reserved: int = 256, with_sharing: bool = True,
-                 threads: int = 0, verbose: bool = False):
+                 threads: int = 0, verbose: bool = False, tail_tokens: str = "head"):
+        """tail_tokens (only with sampled tail trees): which tokens tail trees may use.
+        'head'  = only tokens that are nodes of head trees (tail trees reweight the objective, never add
+                  candidates; avoids the SAA optimizer's curse of buying tokens for individual sampled words)
+        'ngram' = any frequent n-gram (count >= head threshold)."""
         t0 = time.time()
         self.prob, self.m, self.reserved = prob, m, reserved
         langs, trees, C = prob.langs, prob.trees, prob.counts
@@ -162,7 +166,12 @@ class VocabLP:
         col_lo[: len(prob.base_chars)] = 1.0               # base chars always in vocabulary
         if np.any(prob.meta.get("is_tail", [])):
             # sampled tail trees: only frequent n-grams may become tokens (else z of that node is forced to 0)
-            rare = np.array([i >= len(prob.base_chars) and t not in prob.ngrams for i, t in enumerate(self.tokens)])
+            if tail_tokens == "head":
+                head_nodes = ~np.asarray(prob.meta["is_tail"])[node_tree]
+                ok = np.zeros(nX, bool); ok[node_tok[head_nodes]] = True; ok[: len(prob.base_chars)] = True
+                rare = ~ok
+            else:
+                rare = np.array([i >= len(prob.base_chars) and t not in prob.ngrams for i, t in enumerate(self.tokens)])
             col_hi[:nX][rare] = 0.0
             self.n_rare_tokens = int(rare.sum())
         agg = np.r_[self.cT, self.cM, self.cA, [self.cTtot, self.cMtot, self.ct, self.cS]]

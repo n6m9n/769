@@ -41,6 +41,7 @@ ap.add_argument("--delta", type=float, default=1e-3, help="tie-break weight on T
 ap.add_argument("--max-shade", type=int, default=6)
 ap.add_argument("--warm-limit", type=float, default=60.0, help="seconds before a stalled warm start falls back to cold")
 ap.add_argument("--threads", type=int, default=0)
+ap.add_argument("--tail-tokens", choices=["head", "ngram"], default="head")
 ap.add_argument("--no-save", action="store_true", help="don't save tokenizers (timing / scaling runs)")
 ap.add_argument("--verbose", action="store_true")
 ap.add_argument("--phase", choices=["all", "anchor", "sweep", "merge"], default="all",
@@ -70,7 +71,7 @@ prob = Problem.load(cfg.out / "problem.pkl")
 tokdir = cfg.out / "tokenizers"
 
 t0 = time.time()
-lp = VocabLP(prob, m=cfg.vocab_size, threads=a.threads, verbose=a.verbose)
+lp = VocabLP(prob, m=cfg.vocab_size, threads=a.threads, verbose=a.verbose, tail_tokens=a.tail_tokens)
 print(f"[sweep] LP built in {lp.build_seconds:.1f}s: {lp.nX} token vars, {lp.nZ} node vars, {lp.nR} rows", flush=True)
 records = []
 AGG = {"t_max": "Tmax", "Mtot_max": "Mtot"}
