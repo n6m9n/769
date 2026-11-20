@@ -10,7 +10,7 @@ from motok.lp.model import VocabLP
 from motok.pretokenize import pretokenize
 from motok.toast.problem import build_problem
 from motok.toast.trees import (SplitTreeTokenizer, annotate_morph, build_tree, make_levels, morph_boundaries,
-                               ngram_counts, tree_tokenize)
+                               ngram_counts, ngram_counts_naive, tree_tokenize)
 
 TOY = {
     "en": Counter({" the": 50, " then": 20, " there": 15, " these": 12, " theme": 6, " other": 9, " there's": 3,
@@ -136,3 +136,19 @@ def test_pareto_utils():
     assert list(nondominated(P)) == [True, True, False, True]
     assert hypervolume(P[nondominated(P)], np.array([5, 6])) == pytest.approx(4*1 + 3*2 + 1*2)
     assert gini([1, 1, 1]) == pytest.approx(0) and gini([0, 0, 1]) > 0.5
+
+
+def test_apriori_ngrams_match_naive():
+    merged = Counter()
+    for c in TOY.values():
+        merged.update(c)
+    merged.update({"x" * 70: 2, " अनुवाद": 4, " ab": 1})
+    for mc in [1, 3, 5, 12, 40]:
+        assert ngram_counts(dict(merged), mc, max_len=64) == ngram_counts_naive(dict(merged), mc, max_len=64)
+
+
+def test_parallel_counting_matches_serial(tmp_path):
+    from motok.pretokenize import count_pretokens_file
+    f = tmp_path / "t.txt"
+    f.write_text("\n".join(["the walking dog házakban", "नमस्ते दुनिया 123", "there's  more!"] * 50) + "\n")
+    assert count_pretokens_file(f, n_proc=1) == count_pretokens_file(f, n_proc=3, chunk_lines=7)

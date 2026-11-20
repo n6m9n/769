@@ -29,7 +29,45 @@ def ngram_counts(pretoken_counts: dict[str, float], min_count: float, max_len: i
     (a substring is at least as frequent as any string containing it), so if
     min_count <= the count of every selected pretoken, every substring of every
     selected pretoken is in the dictionary.
+
+    Computed level-wise (Apriori): an n-gram can only reach min_count if both its
+    (n-1)-prefix and (n-1)-suffix did, so each level only counts candidates whose
+    two parents survived. Exact (same output as counting every substring), but
+    memory stays proportional to the frequent n-grams instead of all substrings.
     """
+    out: dict[str, float] = {}
+    # level 1
+    acc: dict[str, float] = {}
+    for p, c in pretoken_counts.items():
+        for ch in p:
+            acc[ch] = acc.get(ch, 0.0) + c
+    prev = {s: c for s, c in acc.items() if c >= min_count}
+    out.update(prev)
+    active = [(p, c) for p, c in pretoken_counts.items() if len(p) >= 2]
+    n = 2
+    while prev and active and n <= max_len:
+        acc = {}
+        get = acc.get
+        nxt_active = []
+        for p, c in active:
+            L = len(p)
+            hit = False
+            for i in range(L - n + 1):
+                s = p[i:i + n]
+                if s[:-1] in prev and s[1:] in prev:
+                    acc[s] = get(s, 0.0) + c
+                    hit = True
+            if hit and L > n:
+                nxt_active.append((p, c))
+        prev = {s: c for s, c in acc.items() if c >= min_count}
+        out.update(prev)
+        active = nxt_active
+        n += 1
+    return out
+
+
+def ngram_counts_naive(pretoken_counts: dict[str, float], min_count: float, max_len: int = 64) -> dict[str, float]:
+    """Reference implementation (all substrings in memory); used by the tests."""
     acc: dict[str, float] = {}
     get = acc.get
     for p, c in pretoken_counts.items():

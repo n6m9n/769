@@ -19,13 +19,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
-from motok.baselines.hf import HFWrapper, SplitTreeWrapper
+from motok.tokload import load_any
 from motok.config import load_cfg, read_lines
-from motok.toast.io import load_tokenizer
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--config", required=True)
 ap.add_argument("--tol", type=float, default=1e-6, help="relative tolerance")
+ap.add_argument("--max-lines", type=int, default=5000, help="held-out lines per language for the round trip")
 a = ap.parse_args()
 cfg = load_cfg(a.config)
 S = json.load(open(cfg.out / "sweep.json"))
@@ -123,14 +123,11 @@ if E:
 
 # ---- 3. round trip on all held-out lines + unseen characters
 probe = ["Hello 🌍 wörld — ¿qué? 漢字テスト ✓", "\t  tabs\n\nnewlines  ", "Ελληνικά ქართული ꯃꯩꯇꯩ", "‍zwj nbsp"]
-eval_texts = {l: read_lines(cfg.data / "eval" / f"{l}.txt") for l in cfg.langs}
+eval_texts = {l: read_lines(cfg.data / "eval" / f"{l}.txt", a.max_lines) for l in cfg.langs}
 rt = {}
 for p in sorted((cfg.out / "tokenizers").iterdir()):
-    if p.suffix == ".json" and not p.name.endswith(".vocab.json"):
-        tok = HFWrapper.load(p, p.stem)
-    elif p.suffix == ".pkl":
-        tok = SplitTreeWrapper(load_tokenizer(p), p.stem)
-    else:
+    tok = load_any(p)
+    if tok is None:
         continue
     bad = [(l, t) for l, ts in eval_texts.items() for t in ts if tok.decode_tokens(t) != t]
     bad += [("probe", t) for t in probe if tok.decode_tokens(t) != t]

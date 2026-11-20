@@ -117,12 +117,19 @@ class VocabLP:
         # vocab size
         self.r_vocab = r
         add_row(np.arange(nX), np.ones(nX), m - reserved, m - reserved)
-        # leaf coverage: one row per leaf, entries = path nodes
-        for j, t in enumerate(trees):
-            base = node_off[j]
-            for leaf in t.leaves():
-                path = t.path_to_root(int(leaf))
-                add_row(base + np.asarray(path) + self.cZ, np.ones(len(path)), 1.0, 1.0)
+        # leaf coverage: one row per leaf, entries = path nodes (vectorised over all trees)
+        par_g = np.concatenate([np.where(t.parent >= 0, t.parent + node_off[j], -1) for j, t in enumerate(trees)])
+        is_leaf = np.concatenate([t.left < 0 for t in trees])
+        leaves_g = np.nonzero(is_leaf)[0]
+        n_leaf = len(leaves_g)
+        leaf_rows = r + np.arange(n_leaf)
+        cur, rr = leaves_g, leaf_rows
+        while len(cur):
+            rows.append(rr); cols.append(self.cZ + cur); vals.append(np.ones(len(cur)))
+            nxt = par_g[cur]
+            keep = nxt >= 0
+            cur, rr = nxt[keep], rr[keep]
+        lo.extend([1.0] * n_leaf); hi.extend([1.0] * n_leaf); r += n_leaf
         # link z_k - x_tok(k) <= 0   (vectorised)
         r0 = r
         rows.append(np.repeat(np.arange(r0, r0 + nZ), 2))

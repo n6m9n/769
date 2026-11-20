@@ -69,3 +69,35 @@ def load_counts(path: str | Path) -> tuple[Counter, dict]:
     with open(path, encoding="utf-8") as f:
         d = json.load(f)
     return Counter(d["counts"]), d["stats"]
+
+
+# ---------------------------------------------------------------- parallel counting
+def _count_chunk(lines: list[str]) -> tuple[Counter, dict]:
+    return count_pretokens(lines)
+
+
+def count_pretokens_file(path: str | Path, max_lines: int | None = None, n_proc: int = 1,
+                         chunk_lines: int = 20000) -> tuple[Counter, dict]:
+    """count_pretokens over a file, split into line chunks counted in n_proc worker processes."""
+    if n_proc <= 1:
+        return count_pretokens(iter_lines(path, max_lines))
+    from multiprocessing import Pool
+
+    def chunks():
+        buf = []
+        for line in iter_lines(path, max_lines):
+            buf.append(line)
+            if len(buf) >= chunk_lines:
+                yield buf
+                buf = []
+        if buf:
+            yield buf
+
+    total: Counter = Counter()
+    stats = {"chars": 0, "bytes": 0, "lines": 0, "words": 0}
+    with Pool(n_proc) as pool:
+        for c, st in pool.imap_unordered(_count_chunk, chunks()):
+            total.update(c)
+            for k in stats:
+                stats[k] += st[k]
+    return total, stats
