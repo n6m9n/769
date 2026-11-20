@@ -161,7 +161,9 @@ def download_flores():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--what", choices=["smoke", "morph", "fineweb", "flores", "all"], required=True)
+    ap.add_argument("--data-dir", default="data", help="relative to the repo root (full runs use data_full)")
     a = ap.parse_args()
+    DATA = ROOT / a.data_dir
     if a.what == "smoke":
         download_smoke()
     if a.what in ("morph", "all"):

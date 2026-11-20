@@ -1,9 +1,9 @@
 # Full experiment on FineWeb(-2). Scale trees_per_lang up gradually: LP time grows ~quadratically.
 name: full
 langs: [en, hi, mr, ta, ru, hu]
-data_dir: data
+data_dir: data_full
 results_dir: results/full
-trees_per_lang: 10000         # start here; 20k-40k per language once timings are known
+trees_per_lang: 5000          # start here; 10k-40k per language once timings are known
 vocab_size: 32000
 hierarchy: [grapheme, char]
 balance_ngrams: true
