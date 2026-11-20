@@ -8,7 +8,8 @@ Fairness controls (RQ4):
     bounded by the smallest corpus), lines shuffled with a fixed seed, one epoch;
   * same model (6 layers, d=512, 8 heads, ctx 512 tokens, tied embeddings; only the embedding table
     depends on the vocabulary, which is the same size for every tokenizer) and the same optimiser;
-  * same tokens per step, so tokenizers that compress better see the data in fewer steps.
+  * same tokens per step and the same number of passes (--epochs, default 4) over that text, so
+    tokenizers that compress better see the data in fewer steps.
   * metric: bits per byte = total NLL / ln 2 / UTF-8 bytes, which is tokenization-independent.
     Held-out: FineWeb(-2) eval split (non-parallel) and FLORES+ devtest (parallel: same content).
 
@@ -37,6 +38,7 @@ ap.add_argument("--dim", type=int, default=512)
 ap.add_argument("--heads", type=int, default=8)
 ap.add_argument("--lr", type=float, default=1.5e-3)
 ap.add_argument("--seed", type=int, default=0)
+ap.add_argument("--epochs", type=int, default=4, help="passes over the (identical) training text")
 ap.add_argument("--encode-only", action="store_true")
 a = ap.parse_args()
 cfg = load_cfg(a.config)
@@ -187,7 +189,7 @@ n_params = sum(p.numel() for p in model.parameters())
 n_nonemb = n_params - model.emb.weight.numel() - model.pos.weight.numel()
 data = torch.from_numpy(np.fromfile(ddir / "train.i32", dtype=np.int32).astype(np.int64))
 n_seq = (len(data) - 1) // a.ctx
-steps = n_seq // a.batch
+steps = a.epochs * n_seq // a.batch
 decay = [p for n, p in model.named_parameters() if p.dim() >= 2]
 no_decay = [p for n, p in model.named_parameters() if p.dim() < 2]
 opt = torch.optim.AdamW([{"params": decay, "weight_decay": 0.1}, {"params": no_decay, "weight_decay": 0.0}],
@@ -198,7 +200,8 @@ sched = torch.optim.lr_scheduler.LambdaLR(
 print(f"[lm] params {n_params/1e6:.1f}M ({n_nonemb/1e6:.1f}M non-embedding), {steps} steps x {a.batch}x{a.ctx} tokens",
       flush=True)
 
-perm = torch.randperm(n_seq, generator=torch.Generator().manual_seed(a.seed))
+g = torch.Generator().manual_seed(a.seed)
+perm = torch.cat([torch.randperm(n_seq, generator=g) for _ in range(a.epochs)])
 t0 = time.time()
 log = []
 model.train()
@@ -215,7 +218,7 @@ for s in range(steps):
     opt.step(); sched.step()
     if s % 100 == 0 or s == steps - 1:
         tps = (s + 1) * a.batch * a.ctx / (time.time() - t0)
-        log.append({"step": s, "loss": float(loss), "lr": sched.get_last_lr()[0]})
+        log.append({"step": s, "loss": float(loss.detach()), "lr": sched.get_last_lr()[0]})
         print(f"  step {s:5d}/{steps} loss {float(loss):.4f} ({tps/1e3:.0f}k tok/s)", flush=True)
 train_seconds = time.time() - t0
 

@@ -108,7 +108,10 @@ def evaluate(tok, eval_texts: dict[str, list[str]], gold: dict[str, list] | None
         res["morph_f1_mean"] = float(np.mean([m["f1"] for m in res["morph"].values()]))
         res["spurious_mean"] = float(np.mean([m["spurious_per_word"] for m in res["morph"].values()]))
     if parallel:
-        pr = premiums(tok, parallel)
+        counts = {l: sum(len(tok.encode(t)) for t in lines) for l, lines in parallel.items()}
+        res["flores_abs"] = {l: counts[l] / max(len(parallel[l]), 1) for l in counts}   # tokens per sentence
+        ref = "en" if "en" in counts else next(iter(counts))
+        pr = {l: counts[l] / counts[ref] for l in counts}
         res["premium"] = pr
         res["premium_max"], res["premium_gini"] = max(pr.values()), gini(list(pr.values()))
     return res
