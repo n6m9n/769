@@ -111,8 +111,13 @@ def test_warm_time_limit_is_per_call():
     lp.set_objective(Ttot=1.0)
     while lp.h.getRunTime() < 0.05:          # accumulate run-clock time with cold solves
         r0 = lp.solve(warm=False)
+    # a feasible bound strictly between the min-max optimum and the anchor's worst language
+    # (if they coincide - the anchor is already min-max optimal - just restate the anchor's value)
+    lp.set_objective(t=1.0); t_mm = lp.solve(warm=False).agg["t"]
+    lp.set_objective(Ttot=1.0); r0 = lp.solve(warm=False)
+    tau = 0.5 * (t_mm + r0.agg["Tmax"]) if r0.agg["Tmax"] > t_mm + 1e-6 else r0.agg["Tmax"] + 1e-6
     budget = lp.h.getRunTime() / 2           # < time already used, >> a warm re-solve of the toy
-    lp.set_bounds(t_max=0.999 * r0.agg["Tmax"])
+    lp.set_bounds(t_max=tau)
     r1 = lp.solve(warm=True, warm_time_limit=budget)
     assert not r1.fallback and r1.status == "Optimal"
 
