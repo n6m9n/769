@@ -16,10 +16,12 @@ ap = argparse.ArgumentParser(); ap.add_argument("--config", required=True)
 ap.add_argument("--max-lines", type=int, default=None)
 ap.add_argument("--procs", type=int, default=32)
 ap.add_argument("--trees-per-lang", type=int, default=None, help="override config")
+ap.add_argument("--hierarchy", nargs="+", default=None, help="override config, e.g. morph grapheme char")
 ap.add_argument("--out-name", default=None, help="write problem to results/<out-name> instead of the config results_dir")
 a = ap.parse_args()
 cfg = load_cfg(a.config)
 if a.trees_per_lang: cfg["trees_per_lang"] = a.trees_per_lang
+if a.hierarchy: cfg["hierarchy"] = a.hierarchy
 if a.out_name: cfg["results_dir"] = f"results/{a.out_name}"
 
 def _morfessor_job(args):

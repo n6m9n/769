@@ -90,3 +90,30 @@ def boundaries_of(segs: list[str]) -> set[int]:
         pos += len(s)
         out.add(pos)
     return out
+
+
+def load_morphscore(path: str | Path, max_items: int | None = 3000, seed: int = 0) -> list[tuple[str, list[str]]]:
+    """MorphScore v2 (Arnett et al. 2025) gold from UD: word = [preceding] + stem + [following].
+
+    Default MorphScore filtering: unique items, stem == lemma, no digits; segments must concatenate to the
+    word form. Words with a single morpheme are kept (they test over-segmentation). A uniform random
+    sample of `max_items` distinct word forms (fixed seed) keeps evaluation fast.
+    """
+    import csv
+    import random
+    out, seen = [], set()
+    with open(path, encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            w = row["wordform"]
+            if row.get("unique") != "unique" or row["lemma"] != row["stem"] or w in seen:
+                continue
+            if regex.search(r"\d", w) or not w:
+                continue
+            segs = [s for s in (row.get("preceding_part") or "", row["stem"], row.get("following_part") or "") if s]
+            if "".join(segs) != w:
+                continue
+            seen.add(w)
+            out.append((w, segs))
+    if max_items and len(out) > max_items:
+        out = random.Random(seed).sample(out, max_items)
+    return out

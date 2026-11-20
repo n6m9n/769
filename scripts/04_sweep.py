@@ -14,6 +14,9 @@ and the reduced cost of the bounded aggregate = d(Ttot)/d(bound), the local exch
 
 Bound shading (fixes rounding overshoot): if the rounded vocabulary violates the point's epsilon-bound,
 the bound is tightened by the overshoot, the LP re-solved (warm) and re-rounded, up to --max-shade times.
+
+Parallel mode (large problems): --phase anchor --anchor X (x3, in parallel), then --phase sweep --sweeps S
+(one process per sweep, warm from the saved compression basis), then --phase merge.
 The LP value at the *original* bound stays the lower bound, so gap_Ttot is a valid certificate whenever
 the final integer point satisfies the original bound (recorded as int_feasible).
 """
@@ -35,16 +38,34 @@ ap.add_argument("--out-name", default=None, help="results/<out-name> instead of 
 ap.add_argument("--n-points", type=int, default=None)
 ap.add_argument("--vocab-size", type=int, default=None)
 ap.add_argument("--delta", type=float, default=1e-3, help="tie-break weight on Ttot for anchor solves")
-ap.add_argument("--max-shade", type=int, default=4)
+ap.add_argument("--max-shade", type=int, default=6)
+ap.add_argument("--warm-limit", type=float, default=60.0, help="seconds before a stalled warm start falls back to cold")
 ap.add_argument("--threads", type=int, default=0)
 ap.add_argument("--no-save", action="store_true", help="don't save tokenizers (timing / scaling runs)")
 ap.add_argument("--verbose", action="store_true")
+ap.add_argument("--phase", choices=["all", "anchor", "sweep", "merge"], default="all",
+                help="parallel mode: 'anchor' solves one anchor (--anchor) and saves its basis; 'sweep' runs --sweeps "
+                     "warm from the saved compression basis; 'merge' combines parts into sweep.json")
+ap.add_argument("--anchor", choices=["compression", "minmax", "min_morph"], default=None)
 a = ap.parse_args()
 cfg = load_cfg(a.config)
 if a.out_name:
     cfg["results_dir"] = f"results/{a.out_name}"
 if a.vocab_size:
     cfg["vocab_size"] = a.vocab_size
+parts = cfg.out / "sweep_parts"
+parts.mkdir(exist_ok=True)
+if a.phase == "merge":
+    recs, info = [], {}
+    order = ["anchor_compression", "anchor_minmax", "anchor_min_morph", "parity", "morph", "grid", "wpar", "wmor"]
+    files = sorted(parts.glob("*.json"), key=lambda f: order.index(f.stem) if f.stem in order else 99)
+    for f in files:
+        d = json.load(open(f)); recs += d["records"]; info = {**d, **info}
+    info["records"] = recs
+    info["parts"] = {f.stem: json.load(open(f))["total_seconds"] for f in files}
+    json.dump(info, open(cfg.out / "sweep.json", "w"), indent=1)
+    print(f"[merge] {len(recs)} records from {len(files)} parts -> {cfg.out/'sweep.json'}")
+    sys.exit(0)
 prob = Problem.load(cfg.out / "problem.pkl")
 tokdir = cfg.out / "tokenizers"
 
@@ -62,7 +83,7 @@ def overshoot(ev, bounds):
 
 def run(tag, sweep, warm=True, method="dual", bounds=None, **info):
     bounds = bounds or {}
-    res = lp.solve(warm=warm, method=method)
+    res = lp.solve(warm=warm, method=method, warm_time_limit=a.warm_limit)
     base = {"tag": tag, "sweep": sweep, **info, "status": res.status, "seconds": res.seconds, "iters": res.iterations,
             "warm": bool(warm), "fallback": res.fallback, "warm_seconds": res.warm_seconds}
     if res.status != "Optimal":   # e.g. a grid corner where tau and eps can't hold together: no Pareto point
@@ -77,7 +98,7 @@ def run(tag, sweep, warm=True, method="dual", bounds=None, **info):
         for k, d in over.items():
             cur[k] = cur[k] - 1.25 * d - 1e-4 * bounds[k]
         lp.set_bounds(**cur)
-        r2 = lp.solve(warm=True, method="dual")
+        r2 = lp.solve(warm=True, method="dual", warm_time_limit=a.warm_limit)
         shade += 1; shade_sec += r2.seconds
         if r2.status != "Optimal":
             break
@@ -102,8 +123,10 @@ def run(tag, sweep, warm=True, method="dual", bounds=None, **info):
     return res, ev
 
 
-def save():
+def save(part=None):
     lp.set_bounds()
+    if part is None and a.phase != "all":
+        part = f"anchor_{a.anchor}" if a.phase == "anchor" else "_".join(a.sweeps)
     try:
         commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     except Exception:  # noqa: BLE001
@@ -112,30 +135,65 @@ def save():
                "n_tokens": lp.nX, "n_nodes": lp.nZ, "n_rows": lp.nR, "n_trees": len(prob.trees),
                "trees_per_lang": prob.meta.get("trees_per_lang"), "coverage": prob.coverage,
                "commit": commit, "total_seconds": time.time() - t0, "records": records},
-              open(cfg.out / "sweep.json", "w"), indent=1)
+              open(parts / f"{part}.json" if part else cfg.out / "sweep.json", "w"), indent=1)
+
+
+class _A:  # anchor values loaded from parts (parallel mode)
+    def __init__(self, rec):
+        self.agg = rec["lp"]
+
+
+def solve_anchor(tag):
+    lp.set_bounds()
+    if tag == "compression":
+        lp.set_objective(Ttot=1.0)
+    elif tag == "minmax":
+        lp.set_objective(Ttot=a.delta, t=1.0)
+    else:
+        lp.set_objective(Ttot=a.delta, Mtot=1.0)
+    r, e = run(tag, "anchor", warm=False)
+    lp.save_basis(parts / f"basis_{tag}.bas")
+    return r, e
 
 
 # ---- anchors (ideal points of each objective)
-print("[anchors]", flush=True)
-lp.set_bounds(); lp.set_objective(Ttot=1.0)
-r_comp, e_comp = run("compression", "anchor", warm=False)                       # vanilla ToaST (multilingual)
-lp.set_objective(Ttot=a.delta, t=1.0)
-r_mm, e_mm = run("minmax", "anchor", warm=False)                                 # best possible worst-language cost
-lp.set_objective(Ttot=a.delta, Mtot=1.0)
-r_mo, e_mo = run("min_morph", "anchor", warm=False)                              # fewest spurious boundaries
-save()
+if a.phase == "anchor":
+    solve_anchor(a.anchor)
+    save()
+    print(f"[anchor] {a.anchor} done in {time.time()-t0:.0f}s", flush=True)
+    sys.exit(0)
+if a.phase == "all":
+    print("[anchors]", flush=True)
+    r_comp, e_comp = solve_anchor("compression")
+    r_mm, e_mm = solve_anchor("minmax")
+    r_mo, e_mo = solve_anchor("min_morph")
+    save()
+else:   # phase == "sweep": anchors come from the parts written by --phase anchor
+    def _load(tag):
+        return _A(json.load(open(parts / f"anchor_{tag}.json"))["records"][0])
+    r_comp, r_mm, r_mo = _load("compression"), _load("minmax"), _load("min_morph")
+
+
+def from_compression_basis():
+    """Objective Ttot, no bounds, at the compression anchor's optimal basis (cold solve only if no basis file)."""
+    lp.set_bounds(); lp.set_objective(Ttot=1.0)
+    if a.phase == "sweep" and lp.load_basis(parts / "basis_compression.bas"):
+        lp.solve(warm=True, method="primal", warm_time_limit=a.warm_limit)
+    else:
+        lp.solve(warm=False)
+
 
 n = a.n_points or cfg.sweep["n_points"]
 if "parity" in a.sweeps:
     print("[sweep parity] min Ttot s.t. T_l <= tau", flush=True)
-    lp.set_bounds(); lp.set_objective(Ttot=1.0); lp.solve(warm=False)   # basis of the compression anchor
+    from_compression_basis()
     for i, tau in enumerate(np.linspace(r_mm.agg["t"], r_comp.agg["Tmax"], n + 2)[1:-1][::-1]):
         lp.set_bounds(t_max=tau)
         run(f"parity_{i}", "parity", bounds={"t_max": float(tau)}, tau=float(tau))
     save()
 if "morph" in a.sweeps:
     print("[sweep morph] min Ttot s.t. Mtot <= eps", flush=True)
-    lp.set_bounds(); lp.set_objective(Ttot=1.0); lp.solve(warm=False)
+    from_compression_basis()
     for i, eps in enumerate(np.linspace(r_mo.agg["Mtot"], r_comp.agg["Mtot"], n + 2)[1:-1][::-1]):
         lp.set_bounds(Mtot_max=eps)
         run(f"morph_{i}", "morph", bounds={"Mtot_max": float(eps)}, eps=float(eps))
@@ -143,23 +201,29 @@ if "morph" in a.sweeps:
 if "grid" in a.sweeps:
     print("[sweep grid] min Ttot s.t. T_l <= tau, Mtot <= eps (eps range per tau)", flush=True)
     taus = np.linspace(r_mm.agg["t"], r_comp.agg["Tmax"], 5)[1:-1][::-1]     # loose -> tight
+    from_compression_basis()
+    W = dict(warm=True, warm_time_limit=a.warm_limit)
     for i, tau in enumerate(taus):
-        lp.set_bounds(t_max=tau)
-        lp.set_objective(Ttot=a.delta, Mtot=1.0); lo = lp.solve(warm=False).agg["Mtot"]   # min Mtot | tau
-        lp.set_objective(Ttot=1.0); hi = lp.solve(warm=False).agg["Mtot"]                 # Mtot at min Ttot | tau
+        lp.set_bounds(t_max=tau); lp.set_objective(Ttot=1.0)
+        hi = lp.solve(method="dual", **W).agg["Mtot"]                                     # Mtot at min Ttot | tau
+        lp.set_objective(Ttot=a.delta, Mtot=1.0)
+        lo = lp.solve(method="primal", **W).agg["Mtot"]                                   # min Mtot | tau
+        lp.set_objective(Ttot=1.0)
+        lp.solve(method="primal", **W)   # back to the min-Ttot | tau basis, so eps points are pure bound changes
         for k, eps in enumerate(np.linspace(lo, hi, 5)[1:-1][::-1]):
             lp.set_bounds(t_max=tau, Mtot_max=eps)
             run(f"grid_{i}{k}", "grid", bounds={"t_max": float(tau), "Mtot_max": float(eps)},
                 tau=float(tau), eps=float(eps), eps_range=[float(lo), float(hi)])
     save()
-if "wsum" in a.sweeps:
-    print("[sweep wsum] min Ttot + lam*t  /  min Ttot + mu*Mtot (warm primal)", flush=True)
-    lp.set_bounds()
-    for key, name, grid in [("t", "wpar", np.geomspace(0.02, 5.0, n)), ("Mtot", "wmor", np.geomspace(0.05, 20.0, n))]:
-        lp.set_objective(Ttot=1.0); lp.solve(warm=False)
-        for i, w in enumerate(grid):
-            lp.set_objective(Ttot=1.0, **{key: float(w)})
-            run(f"{name}_{i}", name, method="primal", **({"lam": float(w)} if key == "t" else {"mu": float(w)}))
+for key, name in [("t", "wpar"), ("Mtot", "wmor")]:
+    if "wsum" not in a.sweeps and name not in a.sweeps:
+        continue
+    print(f"[sweep {name}] min Ttot + w*{key} (warm primal)", flush=True)
+    grid = np.geomspace(0.02, 5.0, n) if key == "t" else np.geomspace(0.05, 20.0, n)
+    from_compression_basis()
+    for i, w in enumerate(grid):
+        lp.set_objective(Ttot=1.0, **{key: float(w)})
+        run(f"{name}_{i}", name, method="primal", **({"lam": float(w)} if key == "t" else {"mu": float(w)}))
     save()
 
 save()

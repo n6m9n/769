@@ -250,6 +250,15 @@ class VocabLP:
         return LPResult(status, info.objective_function_value, agg, rc, dd, time.time() - t0,
                         int(info.simplex_iteration_count), fx, fz, x.copy(), z.copy(), fallback, warm_seconds)
 
+    def save_basis(self, path):
+        self.h.writeBasis(str(path))
+
+    def load_basis(self, path):
+        """Warm-start from a basis written by save_basis (e.g. by another process)."""
+        st = self.h.readBasis(str(path))
+        self._solved_once = st == highspy.HighsStatus.kOk
+        return self._solved_once
+
     # ------------------------------------------------------------- rounding
     def round(self, res: LPResult, eps=1e-5) -> list[str]:
         """ToaST rounding: keep x~1, fill remaining slots with fractional tokens of largest
