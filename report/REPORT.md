@@ -15,6 +15,7 @@ FineWeb / FineWeb-2 text in six typologically diverse languages (en, hi, mr, ta,
 train 35 M-parameter language models per tokenizer.
 
 **Findings.**
+
 1. **The LP stays near-integral at scale.** Over 123 Pareto points of the three main runs, |gap| ≤ 3·10⁻⁴; with
    *bound shading* every rounded vocabulary satisfies its ε-bounds, so every gap is a certificate.
 2. **Head-only fronts do not transfer.** The standard ToaST problem (trees for frequent pretokens only) gives
