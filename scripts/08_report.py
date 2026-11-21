@@ -34,6 +34,9 @@ langs = cfg.langs
 E = json.load(open(cfg.out / "eval.json"))
 LP_DIR, P1 = a.lp.split(":"); P1 += "_"
 OTHERS = [(d, p + "_") for d, p in (x.split(":") for x in a.others)]
+NAMES = {"lp10t": "LP SAA 10k+10k", "lp5t": "LP SAA 5k+5k", "lp10k": "LP head-only 10k", "lp10km": "LP morph-first 10k",
+         "lp20t": "LP SAA 20k+20k", "lp20k": "LP head-only 20k"}
+nm = lambda pf: NAMES.get(pf.rstrip("_"), pf.rstrip("_"))
 pref = {LP_DIR: P1, **{d: p for d, p in OTHERS}}
 stats = {l: json.load(open(cfg.data / "counts" / f"{l}.json"))["stats"] for l in langs}
 w = np.array([stats[l]["chars"] for l in langs], float); w /= w.sum()
@@ -99,12 +102,12 @@ def front_axes(ax, xf, yf, xlabel, ylabel, sweep="parity"):
     end = P1 + ("minmax" if sweep == "parity" else "min_morph")
     chain = [n for n in [anchor] + sw + [end] if n in E]
     ax.plot([xf(E[n]) for n in chain], [yf(E[n]) for n in chain], "-o", color=C["lp"], lw=2, ms=5,
-            label=f"LP ε-constraint ({sweep})", zorder=3)
+            label=f"{nm(P1)}: ε-constraint ({sweep})", zorder=3)
     wn = sorted([n for n in lp_names if lp_tag(n).startswith("wpar_" if sweep == "parity" else "wmor_")])
     if wn:
         ax.plot([xf(E[n]) for n in wn], [yf(E[n]) for n in wn], "s", mfc="none", mec=C["lpw"], ms=6, mew=1.2,
-                label="LP weighted sum", zorder=3)
-    for (d, pf), col in zip(OTHERS, ["#8fb4e6", "#b9b8b2", "#c9a7e8"]):
+                label=f"{nm(P1)}: weighted sum", zorder=3)
+    for (d, pf), col in zip([o for o in OTHERS if not o[1].startswith("lp10km")][:2], ["#8fb4e6", "#b9b8b2"]):
         R2 = json.load(open(ROOT / "results" / d / "sweep.json"))["records"] if (ROOT / "results" / d / "sweep.json").exists() else []
         b2 = {r["tag"]: r.get("tau" if sweep == "parity" else "eps", 0) for r in R2}
         ch = [pf + "compression"] + sorted([n[len(pf):] and n for n in E if n.startswith(pf + sweep + "_")],
@@ -112,7 +115,7 @@ def front_axes(ax, xf, yf, xlabel, ylabel, sweep="parity"):
         ch = [n for n in ch if n in E]
         if ch:
             ax.plot([xf(E[n]) for n in ch], [yf(E[n]) for n in ch], "-", color=col, lw=1.5, marker=".", ms=4,
-                    label=f"LP {pf.rstrip('_')} ({sweep})", zorder=1)
+                    label=f"{nm(pf)} ({sweep} sweep)", zorder=1)
     for n, lab in [(anchor, "LP compression"), (end, "LP " + ("min-max" if sweep == "parity" else "min-morph"))]:
         if n in E:
             ax.plot(xf(E[n]), yf(E[n]), "*", color=C["anchor"], ms=11, zorder=4)
@@ -146,8 +149,9 @@ if have_fl:
                "mean tokens / FLORES sentence (same content in all languages)", "worst-language tokens / sentence")
     axs[1].set_title("(b) FLORES+ devtest (parallel)", fontsize=9, loc="left")
 h, l = axs[0].get_legend_handles_labels()
-fig.legend(h, l, loc="lower center", ncol=4, bbox_to_anchor=(0.5, -0.08), fontsize=8)
-fig.tight_layout(); fig.savefig(OUT / "fig_parity_front.png"); plt.close(fig)
+fig.tight_layout(rect=(0, 0.13, 1, 1))
+fig.legend(h, l, loc="lower center", ncol=3, bbox_to_anchor=(0.5, 0.0), fontsize=8)
+fig.savefig(OUT / "fig_parity_front.png"); plt.close(fig)
 
 fig, axs = plt.subplots(1, 2, figsize=(10.5, 4.3))
 front_axes(axs[0], T_w, lambda r: r["ms_spurious_mean"], "compression: data-weighted tokens / 1000 chars (held-out)",
@@ -157,8 +161,9 @@ front_axes(axs[1], T_w, lambda r: r["ms_f1_mean"], "compression: data-weighted t
            "boundary F1 (MorphScore gold, higher = better)", sweep="morph")
 axs[1].set_title("(b) morpheme-boundary F1", fontsize=9, loc="left")
 h, l = axs[0].get_legend_handles_labels()
-fig.legend(h, l, loc="lower center", ncol=4, bbox_to_anchor=(0.5, -0.08), fontsize=8)
-fig.tight_layout(); fig.savefig(OUT / "fig_morph_front.png"); plt.close(fig)
+fig.tight_layout(rect=(0, 0.13, 1, 1))
+fig.legend(h, l, loc="lower center", ncol=3, bbox_to_anchor=(0.5, 0.0), fontsize=8)
+fig.savefig(OUT / "fig_morph_front.png"); plt.close(fig)
 
 # =========================================================== 2. training-side fronts with certificates
 def train_fronts(R_all, fname, title):
@@ -186,11 +191,11 @@ def train_fronts(R_all, fname, title):
     fig.tight_layout(); fig.savefig(OUT / fname); plt.close(fig)
 
 
-train_fronts(S["records"], "fig_train_fronts.png", P1.rstrip("_"))
+train_fronts(S["records"], "fig_train_fronts.png", nm(P1))
 for d, pf in OTHERS[:1]:
     if (ROOT / "results" / d / "sweep.json").exists():
         train_fronts(json.load(open(ROOT / "results" / d / "sweep.json"))["records"], f"fig_train_fronts_{pf.rstrip('_')}.png",
-                     pf.rstrip("_"))
+                     nm(pf))
 
 # shadow prices
 fig, axs = plt.subplots(1, 2, figsize=(9, 3.3))
@@ -211,7 +216,7 @@ if have_fl and pick:
     bw = 0.8 / len(pick)
     for i, n in enumerate(pick):
         ax.bar(np.arange(len(langs)) + i * bw - 0.4 + bw / 2, [E[n]["flores_abs"][l] for l in langs], bw * 0.92,
-               color=cols[i % len(cols)], label=n.replace(P1, "LP "))
+               color=cols[i % len(cols)], label=n.replace(P1, nm(P1) + " "))
     ax.set_xticks(np.arange(len(langs))); ax.set_xticklabels(langs)
     ax.set_ylabel("tokens / FLORES sentence"); ax.legend(fontsize=7, ncol=3, loc="upper left")
     ax.grid(axis="x", visible=False)
@@ -330,9 +335,10 @@ for n in sorted(E, key=order):
 
 # hypervolumes on (T weighted, T max) and (FLORES mean, FLORES max), per family (union of points per family)
 def hv_table(xf, yf, title):
-    fams = {"LP (all sweep points)": [n for n in E if family(n) == "lp"], "BPE (α sweep)": [n for n in E if family(n) == "bpe"],
+    fams = {f"{nm(P1)} (main run, all sweep points)": [n for n in E if family(n) == "lp"], "BPE (α sweep)": [n for n in E if family(n) == "bpe"],
             "Unigram (α sweep)": [n for n in E if family(n) == "uni"],
-            "all baselines": [n for n in E if family(n) in ("bpe", "uni", "par", "mor")]}
+            "all baselines": [n for n in E if family(n) in ("bpe", "uni", "par", "mor")],
+            **{f"{nm(pf)} (comparison)": [n for n in E if n.startswith(pf)] for _, pf in OTHERS}}
     allp = np.array([(xf(E[n]), yf(E[n])) for n in E if family(n) in ("lp", "bpe", "uni", "par", "mor")])
     ideal, ref = allp.min(0), allp.max(0) * 1.02
     out = [f"\n**Hypervolume — {title}** (normalised to the box [ideal, 1.02×nadir]; higher = better)\n"]

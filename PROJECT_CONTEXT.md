@@ -124,119 +124,54 @@ at inference for unseen words (latency cost, as MUTANT reported).
 
 ---
 
-## 5. Repository map and status
+## 5. Repository map and status (final phase, 2026-11-21)
 
 ```
-motok/pretokenize.py     regex pretokenizer, counting                                     tested
-motok/toast/trees.py     n-grams, split trees, hierarchy, inference, SplitTreeTokenizer   tested
-motok/toast/problem.py   per-language tree selection, balanced n-grams, morph marks       tested (smoke)
-motok/toast/io.py        save/load trained split-tree tokenizers                          used by sweep
-motok/lp/model.py        VocabLP: LP build (HiGHS), scalarisation, warm/cold solve,
-                         rounding, exact evaluation                                       tested
-motok/morph/segment.py   Morfessor training/segmenter, SIGMORPHON gold loader             smoke-tested
-motok/baselines/hf.py    HF byte-level BPE / Unigram, same pretokenizer, temperature mix  smoke-tested
-motok/eval/metrics.py    compression, Gini, Rényi eff., morph P/R/F1 + MorphScore,
-                         sharing (Jaccard), nondominated filter, hypervolume              unit-tested (Pareto utils only)
-scripts/01_download.py   smoke | morph | fineweb | flores                                smoke + morph run; fineweb/flores UNTESTED
-scripts/02_prepare.py    counts, Morfessor, problem.pkl                                  run on smoke
-scripts/03_baselines.py  BPE/Unigram × alpha                                             run on smoke
-scripts/04_sweep.py      anchors + parity / morph / grid ε-sweeps                        all run on smoke (2026-10-06); infeasible points recorded, not rounded
-scripts/05_evaluate.py   held-out metrics for every tokenizer                            run on smoke
-scripts/06_plots.py      fronts, per-language bars, shadow prices, summary.md            run on smoke
-scripts/check_results.py LP<=integer, monotone fronts, full round trip -> checks.json      run on smoke
-tests/test_core.py       10 tests incl. brute-force LP optimality on a toy                passing
+motok/pretokenize.py        regex pretokenizer, (parallel) counting
+motok/toast/trees.py        exact level-wise n-gram counts, split trees, inference, tokenizer
+motok/toast/problem.py      head trees per language + SAA tail samples (tail_samples), morph marks
+motok/lp/model.py           VocabLP: LP build (vectorised), scalarisation, warm/cold solve, bases, rounding, evaluation;
+                            tail_tokens='head' blocks candidates that only occur in sampled tail trees
+motok/baselines/            hf.py (BPE/Unigram x alpha), parity_bpe.py (authors' learner in ext/), morph_bpe.py (reimpl.)
+motok/eval/metrics.py       compression, FLORES tokens/sentence + premiums, Gini, Renyi, morph P/R/F1, hypervolume
+motok/morph/segment.py      Morfessor; SIGMORPHON + MorphScore v2 gold loaders
+motok/tokload.py            one loader for every tokenizer file
+scripts/01..08              download, prepare, baselines, sweep (--phase anchor|sweep|merge), evaluate, LM, report
+scripts/run_lp.sh           parallel LP pipeline; run_lm_queue.sh (GPU queue); link_lp.sh (link LP tokenizers)
+report/REPORT.md            final report (+ figures/, tables.md)
 ```
 
----
+Server runs live in `/data1/samarpitb/motok/results/` (not in git): `full` (baselines, eval.json, lm/),
+`full_10k` (head-only), `full_5k_t5k`, `full_10k_t10k` (SAA, main), `full_20k(_t20k)`, `full_40k`, `full_10k_morph`,
+`*_ngram` (biased SAA rule, kept as evidence).
 
-## 6. Preliminary results (smoke run, UD text)
+## 6. Final results (see report/REPORT.md)
 
-Setup: 6 languages, 2000 trees per language → 10,704 trees, 144,608 nodes, 288 base chars, vocab 4000.
-Pretoken coverage of the selected trees: en 79%, hi 83%, mr 100%, ta 88%, **ru 64%, hu 72%**
-(agglutinative/fusional languages need more trees for the same coverage, a known ToaST limitation).
+- Near-integral at scale: 123 points in the three main runs, |gap| <= 3e-4, 0 bound violations (bound shading).
+- Head-only fronts (10k/lang) are large on the training side (-21 % worst language) but do not transfer: held-out
+  the LP loses to BPE (FLORES mean 44.7 vs 39.5) and the min-max tokenizer is the least fair.
+- SAA of the tail + head-candidate rule: LP estimate within 1-4 % of the exact cost (naive SAA: 24 % too low for ru);
+  held-out hypervolume 0.08 -> 0.75 (BPE alpha-sweep 0.78).
+- SAA 10k+10k parity front transfers: worst-language held-out cost -13 % (FineWeb) / -14 % (FLORES) at flat mean;
+  min-max Gini 0.004 (lowest of all tokenizers). Parity-aware BPE still fairest in absolute terms.
+- LMs (35 M params, 3 seeds): MorphBPE 1.110 bpb best; BPE alpha=0 worst baseline (1.153); SAA LP tokenizers worse
+  (1.19) than head-only LP (1.139) despite better compression.
+- Morph-first trees: 0 spurious boundaries on the training side for +2.2 % Ttot, but held-out compression collapses.
 
-English only (3000 trees): LP integral at m = 1000 and 2000 (inference matches LP to 1e-13), gap 1.5e-4 at m = 1500.
+## 7. Known issues / open questions
 
-Multilingual (training-side LP values, tokens per 1000 chars, κ = 1):
+1. Candidate set is the bottleneck: split-tree nodes only. Next: external candidates (BPE merges, Unigram pieces).
+2. SAA LM penalty (+4.5 % bpb vs head-only LP) is unexplained; hypothesis: word-dependent fragmentation.
+3. Min-max anchors are slow (5-7x a compression solve; 2.4 h at 20k head-only); warm primal start inconclusive.
+4. SAA uses one sample; no independent re-estimation / statistical SAA gap yet.
+5. Matched-bytes LM protocol gives more steps to tokenizers with more tokens (MorphBPE +7 %, Unigram +17 %).
+6. Parity-aware BPE is tuned on FLORES+ dev (in-distribution for devtest); its two variants give identical vocabularies.
+7. Indic gold morphology is small (MorphScore mr: 178 words); MorphBPE is a reimplementation.
 
-| point | Ttot | worst lang (Tmax) | Mtot | gap | time |
-|---|---|---|---|---|---|
-| compression anchor (= multilingual ToaST) | 300.5 | 633.3 | 44.0 | 0 (integral) | 13.6 s cold |
-| parity_4 (τ ≈ 437) | 308.8 (+2.7%) | 437.5 (−31%) | 49.7 | 2.1e-4 | 16.5 s warm |
-| parity_5 (τ ≈ 398) | 322.5 (+7.3%) | 398.5 (−37%) | 58.9 | 5.0e-5 | 21.9 s warm |
-| min-max anchor | 358.9 | 359.1 | 84.7 | 1.2e-5 | 75.2 s cold |
-| min-morph anchor | 394.3 | 640.8 | 32.1 | 0 | 13.0 s cold |
-| morph_0 | 300.7 | 631.5 | 42.3 | 1.0e-4 | 10.3 s warm |
+## 8. Roadmap status
 
-Takeaways so far:
-- Near-integrality survives cross-language coupling constraints (all gaps ≤ 4e-4). (RQ1)
-- The fairness–compression front is very favourable at first: −31% worst-language cost for +2.7% total. (RQ2)
-- Warm-started sweep points: 0.5–22 s vs 13–75 s cold.
-
-Caveats: κ = 1 (no FLORES yet), so cross-script comparison isn't content-normalised; tiny mr/ta data;
-these are training-side numbers.
-
-Full smoke pipeline incl. held-out eval, baselines, checks and diagnosis (2026-10-06): κ = 1 run in
-`results/smoke_kappa1/REPORT.md` (numbers above reproduce to ±0.1); **FLORES κ run** in `results/smoke/REPORT.md`
-(not in git). FLORES+ downloaded and verified aligned; κ: en 1.000, hi 1.001, mr 1.004, ta 1.167, ru 1.103, hu 1.055.
-With κ: parity_4 −29% worst-language for +4.2% total; FLORES devtest: parity cuts worst language −15% and mean −9%
-vs the LP compression anchor, but BPE α=0 still wins in absolute tokens (coverage, issue 8).
-
----
-
-## 7. Known issues
-
-1. **Morph ε-sweep stall:** warm dual simplex hung (> 5 min) on `morph_1` (older highspy). With highspy 1.15.1
-   it does not reproduce: all morph points solve warm in 4–7 s (2026-10-06). The 60 s warm-start limit with cold
-   fallback stays as a safety net; HiGHS `time_limit` is *cumulative* over `run()` calls, so `solve()` offsets it by
-   `getRunTime()` (before that fix every warm start fell back to cold instantly). Fallbacks are logged per point.
-2. **Warm-start rule:** after objective (cost) changes use `solve(warm=False)` (presolve) or
-   `method="primal"`; after bound/RHS changes use `warm=True, method="dual"`. Sweep bounds loose → tight.
-   A bound change before the first solve makes HiGHS think it has a basis and skip presolve; `solve()`
-   clears the solver on the first call to avoid this.
-3. **Scaling bottlenecks:** leaf-coverage rows are built in a Python loop (vectorise before >100k trees);
-   `ngram_counts` keeps all substrings in memory (chunk/prune for full FineWeb); `build_problem` merges all
-   pretoken types in a Python dict.
-4. `encode_with_offsets` gives byte-fallback pieces the span of their character (fine for boundary metrics).
-5. `_ScriptRouter` in `toast/io.py` (morph-first inference) just tries segmenters in order: OK for
-   script-disjoint languages, approximate for hi/mr.
-6. HF Unigram training is slow (~10–45 s each on smoke data); expect much longer on full data.
-7. **Rounding overshoots ε-bounds** slightly (smoke: 17/22 points, Tmax ≤ +0.45, Mtot ≤ +0.12 per 1000 chars), so
-   `gap_Ttot` is not a certificate at those points. Needs bound-aware rounding / repair.
-8. **Coverage dominates held-out results:** with 2000 trees/lang (coverage 64–100%) the LP beats BPE by 9% on the
-   selected pretokens but loses on held-out text (428 vs 380). Trees must cover most of the text, and the
-   vocab must stay well below the number of trees (else every tree root fits in the vocabulary and the front
-   collapses).
-9. **Gold morphology barely overlaps the trees** (smoke: < 1% of SIGMORPHON test words are trees), so held-out
-   morph metrics can't reflect the morph objective yet.
-10. Grid sweep uses a global ε range; tight-τ corners are infeasible (min Mtot | Tmax ≤ 427.5 = 40.8 on smoke).
-    Choose ε per τ from [min Mtot | τ, Mtot at τ]. Grid also visits τ tight → loose (against rule 2).
-
----
-
-## 8. Roadmap (priority order)
-
-**P0, before the interim (target Oct 11):**
-1. Run the smoke pipeline 01→06 end to end; confirm the morph sweep finishes; produce `summary.md` and figures.
-2. Sanity-check results: round-trip failures = 0, LP ≤ integer for every point, fronts look monotone.
-3. Download FLORES+ (κ and premiums) and a first FineWeb slice; run `configs/full.yaml` at
-   **5k trees/language**, vocab 32k. Record LP build/solve time and memory. Scale only if it fits.
-4. Produce Slide-4 figures: parity front vs BPE/Unigram, per-language bars, timing/integrality table.
-
-**P1, after the interim:**
-5. Add **Parity-aware BPE** (github.com/swiss-ai/parity-aware-bpe) and **MorphBPE**
-   (github.com/qcri/MorphBPE) baselines with the same data and vocab size; hypervolume comparison.
-6. Tree-construction ablation: `[grapheme,char]` vs `[morph,grapheme,char]`.
-7. Scaling work (vectorise LP build, chunked n-grams) → 20k–40k trees/language.
-8. Weighted-sum sweeps (warm primal) as a second way to trace the front; compare with ε-constraint.
-
-**P2:**
-9. Small-LM downstream eval: ~25M-param GPT, same vocab size and **same byte budget** for every tokenizer;
-   per-language bits-per-byte on held-out text; 4–6 tokenizers (Pareto points + baselines).
-10. Sharing objective and script-budget constraints (`Σ_{i∈script} x_i ≥ b_s`).
-11. If rounding gaps grow at scale: repair heuristic / cutting planes (see Nichol's blog, "cycle constraints").
-
----
+Done: P0 (smoke, FLORES, full data), P1 (Parity-aware BPE, MorphBPE, hypervolume, ablation, scaling, weighted sums),
+P2 (LM eval). Not done: sharing objective study, script-budget constraints, cutting planes (gaps never needed them).
 
 ## 9. Working rules
 
