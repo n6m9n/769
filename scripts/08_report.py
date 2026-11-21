@@ -22,8 +22,9 @@ from motok.eval.metrics import hypervolume, nondominated
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--config", required=True)
-ap.add_argument("--lp", default="full_20k", help="main LP results dir (prefix lp20k_ in eval.json)")
-ap.add_argument("--lp2", default="full_10k")
+ap.add_argument("--lp", default="full_10k_t10k:lp10t", help="main LP run as <results dir>:<prefix in eval.json>")
+ap.add_argument("--others", nargs="*", default=["full_10k:lp10k", "full_5k_t5k:lp5t"],
+                help="further LP runs drawn lightly in the held-out fronts, <dir>:<prefix>")
 ap.add_argument("--scaling", nargs="+", default=["full", "full_10k", "full_20k", "full_40k"])
 a = ap.parse_args()
 cfg = load_cfg(a.config)
@@ -31,8 +32,9 @@ OUT = ROOT / "results" / "final"
 OUT.mkdir(parents=True, exist_ok=True)
 langs = cfg.langs
 E = json.load(open(cfg.out / "eval.json"))
-pref = {a.lp: "lp" + a.lp.split("_")[-1] + "_", a.lp2: "lp" + a.lp2.split("_")[-1] + "_"}
-P1 = pref[a.lp]
+LP_DIR, P1 = a.lp.split(":"); P1 += "_"
+OTHERS = [(d, p + "_") for d, p in (x.split(":") for x in a.others)]
+pref = {LP_DIR: P1, **{d: p for d, p in OTHERS}}
 stats = {l: json.load(open(cfg.data / "counts" / f"{l}.json"))["stats"] for l in langs}
 w = np.array([stats[l]["chars"] for l in langs], float); w /= w.sum()
 n_flores = len(read_lines(cfg.data / "flores" / "devtest" / "en.txt"))
@@ -68,6 +70,7 @@ def family(n):
     if n.startswith("morphbpe"): return "mor"
     if n.startswith(P1): return "lp"
     if any(n.startswith(p) for p in pref.values()): return "lp2"
+    if n.startswith("lp"): return "lpx"
     return "other"
 
 
@@ -78,9 +81,9 @@ def lp_tag(n):
     return n
 
 
-S = json.load(open(ROOT / "results" / a.lp / "sweep.json"))
+S = json.load(open(ROOT / "results" / LP_DIR / "sweep.json"))
 recs = {r["tag"]: r for r in S["records"] if "lp" in r}
-numbers = {"lp": a.lp, "lp_size": {k: S[k] for k in ["n_tokens", "n_nodes", "n_rows", "n_trees", "build_seconds"]},
+numbers = {"lp": LP_DIR, "lp_size": {k: S[k] for k in ["n_tokens", "n_nodes", "n_rows", "n_trees", "build_seconds"]},
            "coverage": S["coverage"]}
 
 # =========================================================== 1. held-out fronts (FineWeb eval + FLORES)
@@ -101,16 +104,26 @@ def front_axes(ax, xf, yf, xlabel, ylabel, sweep="parity"):
     if wn:
         ax.plot([xf(E[n]) for n in wn], [yf(E[n]) for n in wn], "s", mfc="none", mec=C["lpw"], ms=6, mew=1.2,
                 label="LP weighted sum", zorder=3)
+    for (d, pf), col in zip(OTHERS, ["#8fb4e6", "#b9b8b2", "#c9a7e8"]):
+        R2 = json.load(open(ROOT / "results" / d / "sweep.json"))["records"] if (ROOT / "results" / d / "sweep.json").exists() else []
+        b2 = {r["tag"]: r.get("tau" if sweep == "parity" else "eps", 0) for r in R2}
+        ch = [pf + "compression"] + sorted([n[len(pf):] and n for n in E if n.startswith(pf + sweep + "_")],
+                                            key=lambda n: -b2.get(n[len(pf):], 0)) + [pf + ("minmax" if sweep == "parity" else "min_morph")]
+        ch = [n for n in ch if n in E]
+        if ch:
+            ax.plot([xf(E[n]) for n in ch], [yf(E[n]) for n in ch], "-", color=col, lw=1.5, marker=".", ms=4,
+                    label=f"LP {pf.rstrip('_')} ({sweep})", zorder=1)
     for n, lab in [(anchor, "LP compression"), (end, "LP " + ("min-max" if sweep == "parity" else "min-morph"))]:
         if n in E:
             ax.plot(xf(E[n]), yf(E[n]), "*", color=C["anchor"], ms=11, zorder=4)
-            ax.annotate(lab, (xf(E[n]), yf(E[n])), xytext=(4, 4), textcoords="offset points", fontsize=7, color=INK2)
+            ax.annotate(lab, (xf(E[n]), yf(E[n])), xytext=(6, 5) if "compression" in lab else (6, -11),
+                        textcoords="offset points", fontsize=7, color=INK2)
     for fam, lab, mk, pat in [("bpe", "BPE (temperature α)", "D", "bpe_a"), ("uni", "Unigram (temperature α)", "^", "unigram_a")]:
         pts = series(lambda n: n.startswith(pat), key=lambda t: float(t[0].split("_a")[1]))
         if pts:
             ax.plot([xf(r) for _, r in pts], [yf(r) for _, r in pts], "-" + mk, color=C[fam], lw=1.5, ms=6, label=lab, zorder=2)
-            for n, r in [pts[0], pts[-1]]:
-                ax.annotate("α=" + n.split("_a")[1], (xf(r), yf(r)), xytext=(4, -9), textcoords="offset points",
+            for n, r in ([pts[0], pts[-1]] if fam == "bpe" else [pts[0]]):
+                ax.annotate("α=" + n.split("_a")[1], (xf(r), yf(r)), xytext=(4, -10), textcoords="offset points",
                             fontsize=7, color=INK2)
     for n, lab, fam, mk in [("paritybpe_base", "Parity-aware BPE", "par", "P"), ("morphbpe", "MorphBPE", "mor", "X")]:
         if n in E:
@@ -148,26 +161,36 @@ fig.legend(h, l, loc="lower center", ncol=4, bbox_to_anchor=(0.5, -0.08), fontsi
 fig.tight_layout(); fig.savefig(OUT / "fig_morph_front.png"); plt.close(fig)
 
 # =========================================================== 2. training-side fronts with certificates
-fig, axs = plt.subplots(1, 2, figsize=(10.5, 4.0))
-for ax, sw, wsw, yk, ylab in [(axs[0], "parity", "wpar", "Tmax", "worst-language T (training side)"),
-                              (axs[1], "morph", "wmor", "Mtot", "spurious boundaries / 1000 chars (training side)")]:
-    end = "minmax" if sw == "parity" else "min_morph"
-    R = [recs[t] for t in ["compression"] + sorted([t for t in recs if t.startswith(sw + "_")], key=lambda t: int(t.split("_")[1])) + [end] if t in recs]
-    ax.plot([r["lp"]["Ttot"] for r in R], [r["lp"][yk] for r in R], "-", color=C["lp"], lw=2, label="LP relaxation (lower bound)")
-    ax.plot([r["int"]["Ttot"] for r in R], [r["int"][yk] for r in R], "o", color=C["lp"], ms=5, mfc="#fcfcfb", mew=1.5,
-            label="rounded integer vocabulary")
-    Wr = [recs[t] for t in sorted([t for t in recs if t.startswith(wsw + "_")], key=lambda t: int(t.split("_")[1]))]
-    if Wr:
-        ax.plot([r["int"]["Ttot"] for r in Wr], [r["int"][yk] for r in Wr], "s", mfc="none", mec=C["bpe"], ms=6,
-                label="weighted-sum points (integer)")
-    G = [r for t, r in recs.items() if t.startswith("grid_")]
-    if G and sw == "parity":
-        ax.plot([r["int"]["Ttot"] for r in G], [r["int"][yk] for r in G], ".", color=C["grid"], ms=6, label="3-objective grid")
-    ax.set_xlabel("Ttot: data-weighted tokens / 1000 chars (training side)"); ax.set_ylabel(ylab)
-    ax.legend(fontsize=7)
-axs[0].set_title("(a) compression vs worst language", fontsize=9, loc="left")
-axs[1].set_title("(b) compression vs morphology", fontsize=9, loc="left")
-fig.tight_layout(); fig.savefig(OUT / "fig_train_fronts.png"); plt.close(fig)
+def train_fronts(R_all, fname, title):
+    rc_ = {r["tag"]: r for r in R_all if "lp" in r}
+    fig, axs = plt.subplots(1, 2, figsize=(10.5, 4.0))
+    for ax, sw, wsw, yk, ylab in [(axs[0], "parity", "wpar", "Tmax", "worst-language T (training side)"),
+                                  (axs[1], "morph", "wmor", "Mtot", "spurious boundaries / 1000 chars (training side)")]:
+        end = "minmax" if sw == "parity" else "min_morph"
+        R = [rc_[t] for t in ["compression"] + sorted([t for t in rc_ if t.startswith(sw + "_")], key=lambda t: int(t.split("_")[1])) + [end] if t in rc_]
+        ax.plot([r["lp"]["Ttot"] for r in R], [r["lp"][yk] for r in R], "-", color=C["lp"], lw=2, label="LP relaxation (lower bound)")
+        ax.plot([r["int"]["Ttot"] for r in R], [r["int"][yk] for r in R], "o", color=C["lp"], ms=5, mfc="#fcfcfb", mew=1.5,
+                label="rounded integer vocabulary")
+        Wr = [rc_[t] for t in sorted([t for t in rc_ if t.startswith(wsw + "_")], key=lambda t: int(t.split("_")[1]))]
+        if Wr:
+            ax.plot([r["int"]["Ttot"] for r in Wr], [r["int"][yk] for r in Wr], "s", mfc="none", mec=C["bpe"], ms=6,
+                    label="weighted-sum points (integer)")
+        G = [r for t, r in rc_.items() if t.startswith("grid_")]
+        if G and sw == "parity":
+            ax.plot([r["int"]["Ttot"] for r in G], [r["int"][yk] for r in G], ".", color=C["grid"], ms=6, label="3-objective grid")
+        ax.set_xlabel("Ttot: data-weighted tokens / 1000 chars (training side)"); ax.set_ylabel(ylab)
+        ax.ticklabel_format(useOffset=False, style="plain")
+        ax.legend(fontsize=7)
+    axs[0].set_title(f"(a) {title}: compression vs worst language", fontsize=9, loc="left")
+    axs[1].set_title(f"(b) {title}: compression vs morphology", fontsize=9, loc="left")
+    fig.tight_layout(); fig.savefig(OUT / fname); plt.close(fig)
+
+
+train_fronts(S["records"], "fig_train_fronts.png", P1.rstrip("_"))
+for d, pf in OTHERS[:1]:
+    if (ROOT / "results" / d / "sweep.json").exists():
+        train_fronts(json.load(open(ROOT / "results" / d / "sweep.json"))["records"], f"fig_train_fronts_{pf.rstrip('_')}.png",
+                     pf.rstrip("_"))
 
 # shadow prices
 fig, axs = plt.subplots(1, 2, figsize=(9, 3.3))
@@ -229,7 +252,11 @@ if sc:
             axs[0].plot(*zip(*pts), "-" + mk, lw=2, ms=6, label=lab,
                         color={"t_compression": C["lp"], "t_minmax": C["bpe"], "warm_median_s": C["uni"]}[key])
     axs[0].set_xscale("log"); axs[0].set_yscale("log")
-    axs[0].set_xlabel("LP node variables (millions)"); axs[0].set_ylabel("solve time (s)"); axs[0].legend(fontsize=7)
+    from matplotlib.ticker import FixedLocator, NullLocator, FuncFormatter
+    axs[0].xaxis.set_major_locator(FixedLocator(x)); axs[0].xaxis.set_minor_locator(NullLocator())
+    axs[0].xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.2g}"))
+    axs[0].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
+    axs[0].set_xlabel("LP node variables (millions)"); axs[0].set_ylabel("solve time (s)"); axs[0].legend(fontsize=7, loc="lower right")
     axs[1].plot([r["trees_per_lang"] / 1e3 for r in sc], [100 * r["coverage_mean"] for r in sc], "-o", color=C["lp"], lw=2, label="mean over languages")
     axs[1].plot([r["trees_per_lang"] / 1e3 for r in sc], [100 * r["coverage_min"] for r in sc], "-s", color=C["bpe"], lw=2, label="worst language")
     axs[1].set_xlabel("trees per language (thousands)"); axs[1].set_ylabel("pretoken mass covered by trees (%)")
@@ -324,7 +351,7 @@ if have_fl:
                   "FLORES mean × worst tokens/sentence")
 L += hv_table(T_w, lambda r: r["ms_spurious_mean"], "held-out compression × spurious boundaries (MorphScore)")
 
-L.append(f"\n## LP sweep ({a.lp}, training side; vocab {S['vocab_size']}, {S['n_trees']} trees, {S['n_nodes']} nodes, {S['n_rows']} rows)\n")
+L.append(f"\n## LP sweep ({LP_DIR}, training side; vocab {S['vocab_size']}, {S['n_trees']} trees, {S['n_nodes']} nodes, {S['n_rows']} rows)\n")
 L.append("| point | bound | LP Ttot | int Ttot | int Tmax | int Mtot | gap(Ttot) | int feasible | shade | frac x/z | −rc | time (s) | iters |")
 L.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
 for r in S["records"]:

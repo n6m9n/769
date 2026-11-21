@@ -48,6 +48,7 @@ ap.add_argument("--phase", choices=["all", "anchor", "sweep", "merge"], default=
                 help="parallel mode: 'anchor' solves one anchor (--anchor) and saves its basis; 'sweep' runs --sweeps "
                      "warm from the saved compression basis; 'merge' combines parts into sweep.json")
 ap.add_argument("--anchor", choices=["compression", "minmax", "min_morph"], default=None)
+ap.add_argument("--warm-anchor", action="store_true", help="solve minmax/min_morph warm (primal) from the saved compression basis")
 a = ap.parse_args()
 cfg = load_cfg(a.config)
 if a.out_name:
@@ -152,7 +153,10 @@ def solve_anchor(tag):
         lp.set_objective(Ttot=a.delta, t=1.0)
     else:
         lp.set_objective(Ttot=a.delta, Mtot=1.0)
-    r, e = run(tag, "anchor", warm=False)
+    if a.warm_anchor and tag != "compression" and lp.load_basis(parts / "basis_compression.bas"):
+        r, e = run(tag, "anchor", warm=True, method="primal")     # cost change only -> primal simplex from that basis
+    else:
+        r, e = run(tag, "anchor", warm=False)
     lp.save_basis(parts / f"basis_{tag}.bas")
     return r, e
 
