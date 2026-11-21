@@ -37,6 +37,14 @@ OTHERS = [(d, p + "_") for d, p in (x.split(":") for x in a.others)]
 NAMES = {"lp10t": "LP SAA 10k+10k", "lp5t": "LP SAA 5k+5k", "lp10k": "LP head-only 10k", "lp10km": "LP morph-first 10k",
          "lp20t": "LP SAA 20k+20k", "lp20k": "LP head-only 20k"}
 nm = lambda pf: NAMES.get(pf.rstrip("_"), pf.rstrip("_"))
+SHORT = {"lp10t_": "SAA 10k+10k ", "lp5t_": "SAA 5k+5k ", "lp10k_": "head-only 10k ", "lp10km_": "morph-first 10k "}
+
+
+def short(n):
+    for k, v in SHORT.items():
+        if n.startswith(k):
+            return v + n[len(k):]
+    return n
 pref = {LP_DIR: P1, **{d: p for d, p in OTHERS}}
 stats = {l: json.load(open(cfg.data / "counts" / f"{l}.json"))["stats"] for l in langs}
 w = np.array([stats[l]["chars"] for l in langs], float); w /= w.sum()
@@ -304,17 +312,18 @@ if lm_rows:
     y = np.arange(len(names))
     axs[0].barh(y, [r["fw_bpb_mean"] for r in lm_rows], xerr=[r["fw_bpb_sd"] for r in lm_rows], color=[fam_col(n) for n in names],
                 height=0.7, error_kw={"ecolor": INK2, "lw": 1})
-    axs[0].set_yticks(y); axs[0].set_yticklabels([n.replace(P1, "LP ") for n in names], fontsize=7)
+    axs[0].set_yticks(y); axs[0].set_yticklabels([short(n) for n in names], fontsize=7)
     axs[0].invert_yaxis(); axs[0].set_xlabel("bits per byte, held-out FineWeb (mean of 6 langs, ±sd over seeds)")
     lo = min(r["fw_bpb_mean"] for r in lm_rows); hi = max(r["fw_bpb_mean"] for r in lm_rows)
     axs[0].set_xlim(lo - 0.6 * (hi - lo) - 0.01, hi + 0.3 * (hi - lo) + 0.01)
     axs[0].grid(axis="y", visible=False)
-    for r in lm_rows:
+    for i, r in enumerate(sorted(lm_rows, key=lambda r: (r["bits_per_sent_max"], r["tokenizer"]))):
         tk = E.get(r["tokenizer"])
         if tk and have_fl:
-            axs[1].plot(np.mean(list(tk["flores_abs"].values())), r["bits_per_sent_max"], "o", color=fam_col(r["tokenizer"]), ms=7)
-            axs[1].annotate(r["tokenizer"].replace(P1, "LP "), (np.mean(list(tk["flores_abs"].values())), r["bits_per_sent_max"]),
-                            xytext=(4, 3), textcoords="offset points", fontsize=7, color=INK2)
+            xx = np.mean(list(tk["flores_abs"].values()))
+            axs[1].plot(xx, r["bits_per_sent_max"], "o", color=fam_col(r["tokenizer"]), ms=7)
+            axs[1].annotate(short(r["tokenizer"]), (xx, r["bits_per_sent_max"]), xytext=(5, 4 if i % 2 else -10),
+                            textcoords="offset points", fontsize=6.5, color=INK2)
     axs[1].set_xlabel("mean tokens / FLORES sentence (tokenizer)")
     axs[1].set_ylabel("worst-language bits / FLORES sentence (LM)")
     fig.tight_layout(); fig.savefig(OUT / "fig_lm.png"); plt.close(fig)

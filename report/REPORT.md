@@ -217,13 +217,13 @@ tokenization-independent.
 |---|---|---|---|---|
 | MorphBPE | **1.110 ± 0.002** | **1.078** | 273.8 | 3283 |
 | Unigram α = 1 | 1.120 ± 0.007 | 1.086 | **273.3** | 3572 |
-| head-only LP 10k, compression | 1.139 ± 0.002 | 1.112 | 279.0 | 3539 |
+| head-only LP 10k, morph_7 / parity_5 / compression | 1.136 / 1.138 / 1.139 (sd ≤ 0.002) | 1.110 – 1.112 | 277.7 – 279.2 | 3504 – 3674 |
 | Parity-aware BPE | 1.140 ± 0.010 | 1.104 | 277.7 | 3106 |
 | BPE α = 1 | 1.143 ± 0.012 | 1.104 | 278.8 | 3060 |
 | BPE α = 0 | 1.153 ± 0.001 | 1.109 | 279.2 | 2989 |
-| SAA LP 5k+5k, compression | 1.188 ± 0.020 | 1.151 | 289.9 | 3244 |
+| SAA LP 5k+5k, compression / min-morph | 1.188 ± 0.020 / 1.187 ± 0.010 | 1.151 / 1.149 | 289.9 / 289.8 | 3244 / 3309 |
 | SAA LP 10k+10k, compression | 1.190 ± 0.007 | 1.152 | 290.9 | 3173 |
-| SAA LP 10k+10k, parity_5 | PARITY_LM | | | |
+| SAA LP 10k+10k, parity_5 | 1.193 ± 0.004 | 1.154 | 290.9 | 3169 |
 
 - **Intrinsic metrics do not predict LM quality.** BPE α = 0 has the best compression and is the worst baseline LM;
   morphology-aligned tokenizers (MorphBPE, Unigram) are best.
@@ -231,8 +231,10 @@ tokenization-independent.
   seeds and both SAA sizes; their per-token loss equals BPE's while their tokens carry fewer bytes. A plausible cause
   is word-dependent fragmentation (e.g. " an|i|ma|tion", " H|ar|va|rd"): split-tree inference cuts mid-frequency
   words into short pieces that depend on the word, which is harder to model.
-- **Fairness of the tokenizer barely changes the fairness of the LM:** worst-language bits per FLORES sentence varies
-  by 2–6 % across tokenizers; the LM cost of a language is dominated by the language, not its token premium.
+- **Fairness of the tokenizer barely changes the fairness of the LM:** the SAA parity point cuts the worst-language
+  FLORES token count by 10 % relative to the SAA compression anchor, yet its LM has the *same* worst-language bits per
+  FLORES sentence (290.9 vs 290.9); across all tokenizers that quantity varies by only 2–6 %. The LM cost of a
+  language is dominated by the language, not by its token premium.
 - Noise floor: Parity-aware BPE's two variants produce identical tokenizations with permuted token ids and differ
   by up to 0.015 bpb. Caveat: with matched bytes, tokenizers that produce more tokens also get more steps.
 
